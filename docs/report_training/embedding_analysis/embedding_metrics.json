@@ -1,0 +1,12 @@
+{
+  "num_samples_analyzed": 100,
+  "linear_probe_accuracy_pct": 4.0,
+  "silhouette_score_cosine": 0.0,
+  "intra_action_cosine_sim": 1.0,
+  "inter_action_cosine_sim": 1.0,
+  "semantic_margin": 0.0,
+  "plots": {
+    "action_manifold": "docs/report_training/embedding_analysis\\tsne_actions.png",
+    "environment_manifold": "docs/report_training/embedding_analysis\\tsne_environments.png"
+  }
+}

@@ -1,0 +1,63 @@
+# Experiment 1 Configuration: Point-MAE Fine-Tuning on MM-Fi for 3D Skeleton Estimation (Tahap 2)
+
+experiment_name: "point_mae_mmfi_pose_estimation"
+output_dir: "eksperimen_model/checkpoints/pose_estimation"
+
+# Dataset Configuration
+dataset:
+  root_dir: "datasets/MM-Fi Dataset/filtered_mmwave"
+  segments_csv: "datasets/MM-Fi Dataset/MMFi_action_segments.csv"
+  num_points: 128
+  environments: ["E01", "E02", "E03", "E04"] # Can select specific envs e.g. ["E01"]
+  protocol: "protocol3" # protocol1: daily (14 actions), protocol2: rehab (13 actions), protocol3: all (27 actions)
+  split:
+    type: "stratified_random_cross_subject"
+    split_seed: 42
+    # 6:2:2 ratio strictly stratified across all 4 environments (10 subjects per env)
+    # E01: Train=[S01,S02,S03,S06,S08,S09], Val=[S05,S10], Test=[S04,S07]
+    # E02: Train=[S11,S12,S14,S15,S16,S19], Val=[S18,S20], Test=[S13,S17]
+    # E03: Train=[S21,S23,S26,S27,S29,S30], Val=[S24,S28], Test=[S22,S25]
+    # E04: Train=[S31,S32,S33,S37,S38,S39], Val=[S34,S35], Test=[S36,S40]
+    train_subjects: [
+      "S01", "S02", "S03", "S06", "S08", "S09",
+      "S11", "S12", "S14", "S15", "S16", "S19",
+      "S21", "S23", "S26", "S27", "S29", "S30",
+      "S31", "S32", "S33", "S37", "S38", "S39"
+    ]
+    val_subjects: [
+      "S05", "S10",
+      "S18", "S20",
+      "S24", "S28",
+      "S34", "S35"
+    ]
+    test_subjects: [
+      "S04", "S07",
+      "S13", "S17",
+      "S22", "S25",
+      "S36", "S40"
+    ]
+
+# Model Architecture
+model:
+  pretrained_weights: "models/Point-MAE/pretrain.pth"
+  num_points: 128
+  num_groups: 16
+  group_size: 16
+  embed_dim: 384
+  depth: 12
+  num_heads: 6
+  num_joints: 17
+  freeze_encoder: false # False for Phase 2 fine-tuning, True once frozen for Phase 3
+
+# Training Hyperparameters
+training:
+  batch_size: 32
+  num_workers: 4
+  epochs: 30
+  lr: 0.0002
+  min_lr: 0.00001
+  weight_decay: 0.05
+  warmup_epochs: 3
+  loss_type: "mpjpe" # "mpjpe" (mean per-joint Euclidean distance) or "l1"
+  gradient_clip_val: 1.0
+  seed: 42

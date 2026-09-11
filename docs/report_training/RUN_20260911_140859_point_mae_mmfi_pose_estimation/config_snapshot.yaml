@@ -1,0 +1,77 @@
+experiment_name: point_mae_mmfi_pose_estimation
+output_dir: eksperimen_model/checkpoints/pose_estimation
+dataset:
+  root_dir: datasets/MM-Fi Dataset/filtered_mmwave
+  segments_csv: datasets/MM-Fi Dataset/MMFi_action_segments.csv
+  num_points: 128
+  environments:
+  - E01
+  - E02
+  - E03
+  - E04
+  protocol: protocol3
+  split:
+    type: cross_subject
+    train_subjects:
+    - S01
+    - S02
+    - S03
+    - S04
+    - S05
+    - S06
+    - S07
+    - S08
+    - S09
+    - S10
+    - S11
+    - S12
+    - S13
+    - S14
+    - S15
+    - S16
+    - S17
+    - S18
+    - S19
+    - S20
+    - S21
+    - S22
+    - S23
+    - S24
+    - S25
+    - S26
+    - S27
+    - S28
+    - S29
+    - S30
+    val_subjects:
+    - S31
+    - S32
+    - S33
+    - S34
+    - S35
+    - S36
+    - S37
+    - S38
+    - S39
+    - S40
+model:
+  pretrained_weights: models/Point-MAE/pretrain.pth
+  num_points: 128
+  num_groups: 16
+  group_size: 16
+  embed_dim: 384
+  depth: 12
+  num_heads: 6
+  num_joints: 17
+  freeze_encoder: false
+training:
+  batch_size: 32
+  num_workers: 4
+  epochs: 30
+  lr: 0.0002
+  min_lr: 1.0e-05
+  weight_decay: 0.05
+  warmup_epochs: 3
+  loss_type: mpjpe
+  gradient_clip_val: 1.0
+  seed: 42
