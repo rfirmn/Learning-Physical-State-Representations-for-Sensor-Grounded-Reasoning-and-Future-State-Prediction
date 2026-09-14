@@ -78,13 +78,20 @@ Tugas_Akhir/
 │       ├── INDEX.md                  # Master tabel pembanding seluruh eksperimen
 │       └── RUN_YYYYMMDD_HHMMSS_.../  # Folder aset setiap hasil pelatihan
 └── eksperimen_model/                 # Kode implementasi PyTorch (Pure-PyTorch)
-    ├── configs/                      # Konfigurasi YAML (mmfi_pose_finetune.yaml)
-    ├── datasets/                     # MMFiDataset & transforms point cloud
-    ├── models/                       # Point-MAE, Pose Estimator, Loss functions
-    ├── utils/                        # Checkpoint saver, logger, & ExperimentReporter
+    ├── configs/                      # Konfigurasi eksperimen YAML
+    │   ├── mmfi_pose_v2.yaml         # Konfigurasi arsitektur v2 (Batch 128, 100 Epochs)
+    │   ├── mmfi_pose_best_tuned.yaml # Konfigurasi hasil pemenang hyperparameter tuning
+    │   └── mmfi_pose_finetune.yaml   # Konfigurasi baseline v1 (Legacy)
+    ├── datasets/                     # MMFiDataset & transforms (5 kanal radar + augmentasi)
+    ├── models/                       # Point-MAE, JointQueryPoseHead, CompositePoseLoss
+    ├── utils/                        # Checkpoint, watchdog, reporter & keep_awake
     ├── test_pipeline.py              # Skrip sanity check otomatis GPU & data
-    ├── train_pose.py                 # Skrip pelatihan Tahap 2 (3D Pose Estimation)
-    ├── evaluate_pose.py              # Skrip evaluasi ilmiah (PA-MPJPE, PCK, CI 95%)
+    ├── run_autotune_and_train.py     # Master runner: Auto-tune + Full train + Test eval
+    ├── tune_pose.py                  # Skrip hyperparameter search otomatis
+    ├── train_pose_v2.py              # Skrip training v2 (LLRD, Cosine Annealing, EMA)
+    ├── train_pose.py                 # Skrip training baseline v1 (Legacy)
+    ├── train_mae.py                  # Skrip domain adaptation self-supervised (Point-MAE)
+    ├── evaluate_pose.py              # Evaluasi benchmark ilmiah (PA-MPJPE, PCK, CI 95%)
     ├── evaluate_embedding.py         # Skrip analisis representasi fisik Z_t (t-SNE)
     └── evaluate_robustness.py        # Skrip uji ketahanan terhadap dropout & noise
 ```
@@ -136,42 +143,107 @@ Tugas_Akhir/
    datasets/MM-Fi Dataset/MMFi_action_segments.csv
    ```
    *Catatan: Pembagian data menggunakan **Stratified Random Cross-Subject Split (Seed: 42, Rasio 6:2:2)** di seluruh 4 lingkungan (E01–E04).*
+   - **Train Set (24 Subjek):** S01, S02, S03, S05, S06, S08, S09, S11, S12, S14, S15, S18, S19, S20, S21, S23, S24, S26, S27, S29, S30, S32, S35, S38
+   - **Validation Set (8 Subjek):** S10, S16, S28, S31, S33, S34, S37, S39
+   - **Test Set Terisolasi (8 Subjek Unseen):** S04, S07, S13, S17, S22, S25, S36, S40
 
 ---
 
-## 6. Panduan Menjalankan Eksperimen
+## 6. Cheat Sheet Perintah Lengkap (Panduan Eksekusi)
 
-### 1. Sanity Check Otomatis (~3 Detik)
-Verifikasi ketersediaan GPU CUDA, tensor shape, dan backward pass:
+> [!IMPORTANT]
+> Seluruh perintah di bawah wajib dijalankan menggunakan executable interpreter virtual environment: `& ".venv\Scripts\python.exe"` (PowerShell) atau `.venv/bin/python` (Bash).
+
+### 6.1. Sanity Check Pipeline (~3 Detik)
+Selalu jalankan ini sebelum training untuk memverifikasi GPU CUDA, tensor shape, 5 kanal data, dan backward pass:
 ```powershell
 & ".venv\Scripts\python.exe" eksperimen_model/test_pipeline.py
 ```
 
-### 2. Menjalankan Pelatihan 3D Pose Estimation (Tahap 2)
+---
+
+### 6.2. Perintah Pelatihan (Tahap 2: 3D Pose Estimation)
+
+#### Opsi A: Master Runner Otomatis (Unattended: Tuning + Full Training + Test Eval) — *Sangat Direkomendasikan*
+Script ini mencegah Windows tidur (`SetThreadExecutionState`), menjalankan pencarian hyperparameter, mengekspor config terbaik, melatih 100 epoch penuh, lalu langsung mengevaluasi test set:
 ```powershell
-# Pelatihan Standar (30 Epochs, Batch Size 64):
+& ".venv\Scripts\python.exe" eksperimen_model/run_autotune_and_train.py --n_trials 5 --tuning_epochs 8 --full_epochs 100 --batch_size 128
+```
+
+#### Opsi B: Full Training Langsung Model v2 (100 Epochs, Batch 128)
+Jika ingin langsung melatih model arsitektur v2 (Cross-Attention Pose Head, LLRD, Cosine Annealing, Composite Loss):
+```powershell
+& ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_v2.yaml --epochs 100
+```
+*(Catatan: Checkpoint otomatis tersimpan di `eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth` dan `model_av2.pth`)*
+
+#### Opsi C: Hyperparameter Tuning Mandiri
+Mengeksplorasi kombinasi learning rate, weight decay, loss weight, depth decoder, dan dropout:
+```powershell
+& ".venv\Scripts\python.exe" eksperimen_model/tune_pose.py --n_trials 5 --epochs_per_trial 8 --batch_size 128
+```
+*(Config pemenang otomatis disimpan di `eksperimen_model/configs/mmfi_pose_best_tuned.yaml`)*
+
+#### Opsi D: Domain Adaptation Self-Supervised (Point-MAE Pretraining)
+Melakukan fine-tuning backbone Point-MAE pada domain radar tanpa label:
+```powershell
+& ".venv\Scripts\python.exe" eksperimen_model/train_mae.py --epochs 20 --batch_size 64
+```
+
+#### Opsi E: Training Model v1 Baseline (Legacy)
+Untuk keperluan reproduksi atau ablasi model v1 lama:
+```powershell
 & ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --epochs 30 --batch_size 64 --lr 0.0003
 ```
-*Fitur Utama Training:*
-- **Progress Bar Komprehensif:** Memantau `loss`, `mpjpe (mm)`, `avg (mm)`, `lr`, dan `vram`.
-- **Stall Watchdog:** Mendeteksi hambatan I/O disk/worker secara otomatis tanpa memutus proses.
-- **Reporting Otomatis:** Menghasilkan 6 grafik visualisasi 300 DPI di `docs/report_training/RUN_.../`.
 
-### 3. Evaluasi Benchmark Ilmiah (Test Set Terisolasi)
-Menghitung Procrustes PA-MPJPE, PCK@30/50/100/150mm, N-MPJPE, dan 95% Confidence Interval:
+---
+
+### 6.3. Testing & Evaluasi Model
+
+Setelah proses training selesai, gunakan perintah evaluasi berikut untuk menguji performa model:
+
+#### 1. Uji Benchmark Ilmiah pada Test Set Terisolasi (8 Subjek Unseen)
+Menghitung MPJPE, Procrustes PA-MPJPE, PCK@30/50/100/150mm, N-MPJPE, error per-sendi, dan 95% Confidence Interval pada subjek yang belum pernah dilihat model:
+
+- **Jika Melatih Menggunakan Config v2 (`mmfi_pose_v2.yaml`):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml --split test --batch_size 128 --output_json docs/report_training/test_benchmark_results.json
+  ```
+
+- **Jika Melatih Menggunakan Config Hasil Tuning (`mmfi_pose_best_tuned.yaml`):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --split test --batch_size 128 --output_json docs/report_training/test_benchmark_results.json
+  ```
+
+#### 2. Evaluasi pada Validation Set (8 Subjek Validasi)
+Untuk memverifikasi error pada set data validasi:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --split test --output_json docs/test_benchmark_results.json
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml --split val --batch_size 128
 ```
 
-### 4. Analisis Representasi Fisik $Z_t$ (t-SNE & Linear Probe)
-Mengevaluasi kualitas manifold gerakan dan pemisahan invariansi lingkungan (*disentanglement*):
+#### Ringkasan Parameter Penting pada `evaluate_pose.py`:
+| Argumen | Default | Keterangan |
+| :--- | :--- | :--- |
+| `--checkpoint` | *(Wajib)* | Jalur ke file `.pth` model terbaik (`best_model.pth` atau `model_av2.pth`) |
+| `--config` | `mmfi_pose_v2.yaml` | Jalur file YAML yang strukturnya cocok dengan bobot checkpoint |
+| `--split` | `test` | Pilihan dataset split: `test` (subjek unseen), `val` (validasi), atau `train` |
+| `--batch_size` | `128` | Ukuran batch evaluasi (128 direkomendasikan untuk efisiensi RTX 3060) |
+| `--output_json` | *(Opsional)* | Jalur penyimpanan hasil metrik lengkap dalam format JSON |
+
+---
+
+### 6.4. Analisis Representasi Fisik & Uji Robustness
+
+#### Analisis Representasi Fisik $Z_t$ (t-SNE & Disentanglement):
+Mengevaluasi pemisahan invariansi lingkungan (E01–E04) dan manifold aksi pada representasi laten:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_embedding.py
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_embedding.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml
 ```
 
-### 5. Uji Ketahanan Fisik (*Occlusion & Noise Robustness*)
+#### Uji Ketahanan Fisik (*Point Dropout & Radar Noise Robustness*):
+Menguji stabilitas estimasi skeleton saat radar mengalami kehilangan titik (*point starvation*) hingga 50%:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_robustness.py
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_robustness.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml
 ```
 
 ---
