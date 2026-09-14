@@ -1,4 +1,4 @@
-experiment_name: point_mae_mmfi_pose_best_tuned_20260914_115940
+experiment_name: point_mae_mmfi_pose_best_tuned_20260914_142848
 output_dir: eksperimen_model/checkpoints/pose_estimation_v2
 dataset:
   root_dir: datasets/MM-Fi Dataset/filtered_mmwave
@@ -73,11 +73,11 @@ model:
   pose_head_dropout: 0.2
   drop_path_rate: 0.1
 training:
-  batch_size: 32
-  effective_batch_size: 64
-  gradient_accumulation_steps: 2
+  batch_size: 128
+  effective_batch_size: 128
+  gradient_accumulation_steps: 1
   num_workers: 4
-  epochs: 60
+  epochs: 100
   lr: 0.0003
   min_lr: 1.0e-06
   weight_decay: 0.05

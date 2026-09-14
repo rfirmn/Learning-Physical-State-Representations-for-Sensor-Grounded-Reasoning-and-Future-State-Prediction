@@ -56,6 +56,8 @@ def parse_args():
                         help="Batas batch val per epoch (untuk testing cepat)")
     parser.add_argument("--skip_tuning", action="store_true",
                         help="Lewati tahap tuning jika konfigurasi terbaik sudah ada")
+    parser.add_argument("--skip_test", action="store_true",
+                        help="Lewati evaluasi holdout test set di akhir training")
     parser.add_argument("--output_config", type=str, default="eksperimen_model/configs/mmfi_pose_best_tuned.yaml",
                         help="Path penyimpanan file konfigurasi hasil tuning")
     return parser.parse_args()
@@ -162,15 +164,47 @@ def main():
             print(f"\n[Error] Full training gagal dengan exit code {train_proc.returncode}!")
             sys.exit(train_proc.returncode)
 
+        # =====================================================================
+        # TAHAP 3: INDEPENDENT HOLDOUT TESTING (UNSEEN SUBJECTS)
+        # =====================================================================
+        if not args.skip_test:
+            print("\n" + "=" * 80)
+            print(" [TAHAP 3/3] EVALUASI HOLDOUT TEST SET (UNSEEN SUBJECTS: S04, S07, S13, S17, S22, S25, S36, S40)")
+            print("=" * 80 + "\n")
+
+            best_model_path = os.path.join("eksperimen_model/checkpoints/pose_estimation_v2", "best_model.pth")
+            if not os.path.exists(best_model_path):
+                best_model_path = os.path.join("eksperimen_model/checkpoints/pose_estimation_v2", "model_av2.pth")
+
+            test_json_out = "docs/report_training/test_set_benchmark_results.json"
+            test_cmd = [
+                python_exe,
+                "eksperimen_model/evaluate_pose.py",
+                "--checkpoint", best_model_path,
+                "--config", target_config,
+                "--split", "test",
+                "--batch_size", str(args.batch_size),
+                "--output_json", test_json_out
+            ]
+
+            print(f"Menjalankan benchmark testing: {' '.join(test_cmd)}\n")
+            test_proc = subprocess.run(test_cmd)
+            if test_proc.returncode == 0:
+                print(f"\n[Sukses] Hasil pengujian holdout test set tersimpan di: {test_json_out}")
+            else:
+                print(f"\n[Warning] Pengujian test set keluar dengan kode {test_proc.returncode}")
+
         elapsed_hours = (time.time() - start_total_time) / 3600.0
 
         print("\n" + "#" * 80)
-        print("   SELURUH PIPELINE (TUNING + FULL TRAINING) SELESAI DENGAN SUKSES!")
+        print("   SELURUH PIPELINE (TUNING + FULL TRAINING + TESTING) SELESAI DENGAN SUKSES!")
         print("#" * 80)
         print(f" Waktu Selesai  : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f" Total Durasi   : {elapsed_hours:.2f} jam")
         print(f" Checkpoint Av2 : eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth")
         print(f" Master Laporan : docs/report_training/INDEX.md")
+        if not args.skip_test:
+            print(f" Test Benchmark : docs/report_training/test_set_benchmark_results.json")
         print("#" * 80 + "\n")
 
     finally:
