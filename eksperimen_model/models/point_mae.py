@@ -28,16 +28,17 @@ def farthest_point_sampling(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     return centroids
 
 
-def knn_group(nsample: int, xyz: torch.Tensor, new_xyz: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def knn_group(nsample: int, xyz: torch.Tensor, new_xyz: torch.Tensor, extra_features: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Pure PyTorch k-Nearest Neighbors grouping.
-    xyz: (B, N, 3) original points
+    xyz: (B, N, 3) original points (spatial coordinates)
     new_xyz: (B, G, 3) center points
+    extra_features: optional (B, N, C_extra) extra channels (e.g. doppler, snr)
     Returns:
-        grouped_xyz: (B, G, nsample, 3) normalized local patches
+        grouped_pts: (B, G, nsample, 3 + C_extra)
         grouped_idx: (B, G, nsample)
     """
-    # Pairwise distance: (B, G, N)
+    # Pairwise distance in 3D Euclidean space: (B, G, N)
     dist = torch.cdist(new_xyz, xyz)
     _, idx = torch.topk(dist, k=nsample, dim=-1, largest=False, sorted=True) # (B, G, nsample)
 
@@ -45,9 +46,35 @@ def knn_group(nsample: int, xyz: torch.Tensor, new_xyz: torch.Tensor) -> Tuple[t
     idx_expanded = idx.view(B, G * K, 1).expand(-1, -1, 3)
     grouped_xyz = torch.gather(xyz, 1, idx_expanded).view(B, G, K, 3)
 
-    # Normalize patch relative to center
+    # Normalize patch spatial coordinates relative to center
     grouped_xyz_norm = grouped_xyz - new_xyz.unsqueeze(2)
+
+    if extra_features is not None:
+        c_extra = extra_features.shape[-1]
+        idx_feat = idx.view(B, G * K, 1).expand(-1, -1, c_extra)
+        grouped_feat = torch.gather(extra_features, 1, idx_feat).view(B, G, K, c_extra)
+        return torch.cat([grouped_xyz_norm, grouped_feat], dim=-1), idx
+
     return grouped_xyz_norm, idx
+
+
+def drop_path(x: torch.Tensor, drop_prob: float = 0., training: bool = False) -> torch.Tensor:
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1.0 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()
+    return x.div(keep_prob) * random_tensor
+
+
+class DropPath(nn.Module):
+    def __init__(self, drop_prob: float = 0.):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return drop_path(x, self.drop_prob, self.training)
 
 
 class Mlp(nn.Module):
@@ -97,17 +124,28 @@ class Attention(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4., qkv_bias: bool = False, qk_scale: Optional[float] = None, drop: float = 0., attn_drop: float = 0.):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.,
+        qkv_bias: bool = False,
+        qk_scale: Optional[float] = None,
+        drop: float = 0.,
+        attn_drop: float = 0.,
+        drop_path: float = 0.
+    ):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
         self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=nn.GELU, drop=drop)
 
     def forward(self, x):
-        x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 

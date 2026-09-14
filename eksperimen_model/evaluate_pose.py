@@ -308,13 +308,15 @@ def main():
     print("=" * 78)
 
     num_points = cfg["model"]["num_points"]
+    use_extra_features = cfg["dataset"].get("use_extra_features", False)
     dataset = MMFiDataset(
         root_dir=cfg["dataset"]["root_dir"],
         subjects=target_subjects,
         environments=target_envs,
         num_points=num_points,
         augment=False,
-        normalize=True
+        normalize=True,
+        use_extra_features=use_extra_features
     )
     dataloader = DataLoader(
         dataset,
@@ -331,7 +333,12 @@ def main():
         embed_dim=cfg["model"]["embed_dim"],
         depth=cfg["model"]["depth"],
         num_heads=cfg["model"]["num_heads"],
-        num_joints=cfg["model"]["num_joints"]
+        num_joints=cfg["model"]["num_joints"],
+        in_channels=cfg["model"].get("in_channels", 3),
+        pose_head_type=cfg["model"].get("pose_head_type", "mlp"),
+        pose_head_depth=cfg["model"].get("pose_head_depth", 2),
+        pose_head_dropout=cfg["model"].get("pose_head_dropout", 0.1),
+        drop_path_rate=cfg["model"].get("drop_path_rate", 0.0)
     ).to(device)
 
     if os.path.exists(args.checkpoint):

@@ -45,6 +45,13 @@ def load_pretrained_point_mae(
             ckpt_val = cleaned_state_dict[name]
             if ckpt_val.shape == param.shape:
                 matched_dict[name] = ckpt_val
+            elif 'first_conv.0.weight' in name and ckpt_val.ndim == 3 and param.ndim == 3 and ckpt_val.shape[0] == param.shape[0] and ckpt_val.shape[2] == param.shape[2]:
+                # Channel expansion from 3 -> 5 channels
+                new_weight = torch.zeros_like(param)
+                new_weight[:, :ckpt_val.shape[1], :] = ckpt_val
+                nn.init.xavier_uniform_(new_weight[:, ckpt_val.shape[1]:, :])
+                matched_dict[name] = new_weight
+                print(f"[Checkpoint] Channel expanded for '{name}': {ckpt_val.shape} -> {param.shape} (retained 3D ShapeNet weights, initialized new channels)")
             else:
                 mismatched_keys.append((name, param.shape, ckpt_val.shape))
         else:

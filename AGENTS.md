@@ -146,22 +146,26 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
 ```
 
 ### 2. Menjalankan Training Estimasi 3D Pose (Tahap 2):
-- **Training Skala Penuh (Default 30 Epochs, Seluruh Data):**
+- **Otomatis Penuh (Tuning + Full Training Unattended, PC Tetap Terjaga):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/run_autotune_and_train.py --n_trials 5 --tuning_epochs 8 --full_epochs 100 --batch_size 128
+  ```
+- **Training Model v2 Teroptimasi Langsung (60–100 Epochs):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_v2.yaml --epochs 100
+  ```
+- **Hyperparameter Tuning Mandiri:**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/tune_pose.py --n_trials 6 --epochs_per_trial 5
+  ```
+- **Training Model v1 Baseline (Legacy):**
   ```powershell
   & ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --epochs 30 --batch_size 32
-  ```
-- **Training pada Environment Tertentu (misal E01):**
-  ```powershell
-  & ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --env E01 --epochs 20
-  ```
-- **Training Cepat / Debugging (2 Epochs pada Subjek Tertentu):**
-  ```powershell
-  & ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --env E01 --train_sub S01 S02 --val_sub S03 --epochs 2
   ```
 
 ### 3. Mengevaluasi Checkpoint Model per Sendi:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation/best_model.pth --env E01 --subjects S09 S10
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml --split val
 ```
 
 ### 4. Menjalankan Domain Adaptation Self-Supervised (MAE):

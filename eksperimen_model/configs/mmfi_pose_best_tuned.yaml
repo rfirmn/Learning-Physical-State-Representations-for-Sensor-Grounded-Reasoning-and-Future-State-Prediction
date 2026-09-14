@@ -1,0 +1,110 @@
+experiment_name: point_mae_mmfi_pose_best_tuned_20260914_115940
+output_dir: eksperimen_model/checkpoints/pose_estimation_v2
+dataset:
+  root_dir: datasets/MM-Fi Dataset/filtered_mmwave
+  segments_csv: datasets/MM-Fi Dataset/MMFi_action_segments.csv
+  num_points: 128
+  environments:
+  - E01
+  - E02
+  - E03
+  - E04
+  protocol: protocol3
+  use_extra_features: true
+  split:
+    type: stratified_random_cross_subject
+    split_seed: 42
+    train_subjects:
+    - S01
+    - S02
+    - S03
+    - S06
+    - S08
+    - S09
+    - S11
+    - S12
+    - S14
+    - S15
+    - S16
+    - S19
+    - S21
+    - S23
+    - S26
+    - S27
+    - S29
+    - S30
+    - S31
+    - S32
+    - S33
+    - S37
+    - S38
+    - S39
+    val_subjects:
+    - S05
+    - S10
+    - S18
+    - S20
+    - S24
+    - S28
+    - S34
+    - S35
+    test_subjects:
+    - S04
+    - S07
+    - S13
+    - S17
+    - S22
+    - S25
+    - S36
+    - S40
+model:
+  pretrained_weights: models/Point-MAE/pretrain.pth
+  num_points: 128
+  num_groups: 16
+  group_size: 16
+  embed_dim: 384
+  depth: 12
+  num_heads: 6
+  num_joints: 17
+  in_channels: 5
+  freeze_encoder: false
+  pose_head_type: cross_attention
+  pose_head_depth: 2
+  pose_head_dropout: 0.2
+  drop_path_rate: 0.1
+training:
+  batch_size: 32
+  effective_batch_size: 64
+  gradient_accumulation_steps: 2
+  num_workers: 4
+  epochs: 60
+  lr: 0.0003
+  min_lr: 1.0e-06
+  weight_decay: 0.05
+  warmup_epochs: 3
+  lr_layer_decay: 0.75
+  lr_schedule: cosine_warm_restarts
+  lr_restart_period: 20
+  loss_type: composite
+  loss_alpha: 1.0
+  loss_bone_weight: 0.5
+  gradient_clip_val: 1.0
+  ema_decay: 0.999
+  early_stopping_patience: 25
+  seed: 42
+augmentation:
+  rotate: true
+  rotate_z_range: 30.0
+  rotate_x_range: 5.0
+  jitter: true
+  jitter_sigma: 0.015
+  jitter_clip: 0.04
+  scale: true
+  scale_range:
+  - 0.92
+  - 1.08
+  anisotropic_scale: true
+  dropout: true
+  dropout_ratio: 0.15
+  translate: false
+  translate_range: 0.05

@@ -22,11 +22,22 @@ class MMFiDataset(Dataset):
         num_points: int = 128,
         augment: bool = False,
         normalize: bool = False,
-        cache_index: bool = True
+        cache_index: bool = True,
+        use_extra_features: bool = False,
+        augment_config: Optional[dict] = None
     ):
         self.root_dir = root_dir
         self.num_points = num_points
-        self.augment = PointCloudAugment() if augment else None
+        self.use_extra_features = use_extra_features
+
+        if augment:
+            if augment_config:
+                self.augment = PointCloudAugment(**augment_config)
+            else:
+                self.augment = PointCloudAugment()
+        else:
+            self.augment = None
+
         self.normalize = PointCloudNormalize(unit_sphere=True) if normalize else None
 
         self.samples = [] # List of tuples: (bin_path, gt_npy_path, frame_idx, action_idx, env, sub, act)
@@ -102,10 +113,12 @@ class MMFiDataset(Dataset):
         raw_data = np.fromfile(sample['bin'], dtype=np.float32)
         if len(raw_data) % 5 == 0 and len(raw_data) > 0:
             pc = raw_data.reshape(-1, 5)
-            # Filter out invalid / sentinel radar buffer points (e.g. ±3.689e+19)
-            # Realistic indoor physical radar bounds: |x| < 10.0m, |y| < 15.0m, |z| < 5.0m
-            valid_mask = np.isfinite(pc[:, 0]) & np.isfinite(pc[:, 1]) & np.isfinite(pc[:, 2]) & \
-                         (np.abs(pc[:, 0]) < 10.0) & (np.abs(pc[:, 1]) < 15.0) & (np.abs(pc[:, 2]) < 5.0)
+            # Filter out invalid / sentinel radar buffer points across all channels
+            spatial_mask = np.isfinite(pc[:, 0]) & np.isfinite(pc[:, 1]) & np.isfinite(pc[:, 2]) & \
+                           (np.abs(pc[:, 0]) < 10.0) & (np.abs(pc[:, 1]) < 15.0) & (np.abs(pc[:, 2]) < 10.0)
+            feature_mask = np.isfinite(pc[:, 3]) & np.isfinite(pc[:, 4]) & \
+                           (np.abs(pc[:, 3]) < 50.0) & (np.abs(pc[:, 4]) < 1e5)
+            valid_mask = spatial_mask & feature_mask
             if np.any(valid_mask):
                 pc = pc[valid_mask]
             else:
@@ -116,17 +129,8 @@ class MMFiDataset(Dataset):
         # 2. Subsample / Pad points to fixed num_points
         pc = sample_or_pad_points(pc, num_points=self.num_points)
 
-        # Extract 3D coordinates (x, y, z)
-        xyz = pc[:, :3]
-
-        if self.augment:
-            xyz = self.augment(xyz)
-        if self.normalize:
-            xyz = self.normalize(xyz)
-
         # 3. Load Ground Truth 3D Skeleton Keypoints (17 joints x 3)
         if sample['gt'] and os.path.exists(sample['gt']):
-            # Lazy load or memory-mapped access
             gt_data = np.load(sample['gt'], mmap_mode='r')
             f_idx = sample['frame_idx']
             if f_idx < len(gt_data):
@@ -136,8 +140,19 @@ class MMFiDataset(Dataset):
         else:
             skeleton = np.zeros((17, 3), dtype=np.float32)
 
+        # Extract features (3 or 5 channels)
+        if self.use_extra_features:
+            pts = pc[:, :5]
+        else:
+            pts = pc[:, :3]
+
+        if self.augment:
+            pts, skeleton = self.augment(pts, skeleton)
+        if self.normalize:
+            pts = self.normalize(pts)
+
         return {
-            'points': torch.from_numpy(xyz).float(),             # Shape: (num_points, 3)
+            'points': torch.from_numpy(pts).float(),             # Shape: (num_points, C)
             'skeleton': torch.from_numpy(skeleton).float(),       # Shape: (17, 3)
             'action': torch.tensor(sample['action_idx'], dtype=torch.long),
             'frame_idx': torch.tensor(sample['frame_idx'], dtype=torch.long),
