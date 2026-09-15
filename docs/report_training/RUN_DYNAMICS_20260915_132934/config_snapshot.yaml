@@ -1,0 +1,107 @@
+experiment_name: mmfi_dynamics_v3
+dataset:
+  root_dir: datasets/MM-Fi Dataset/filtered_mmwave
+  features_output_dir: datasets/MM-Fi_features_v2
+  segments_csv: datasets/MM-Fi Dataset/MMFi_action_segments.csv
+  encoder_checkpoint: eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth
+  num_points: 128
+  use_extra_features: true
+  environments:
+  - E01
+  - E02
+  - E03
+  - E04
+  protocol: protocol3
+  split:
+    type: custom_stratified_cross_subject
+    train_subjects:
+    - S01
+    - S02
+    - S03
+    - S06
+    - S08
+    - S09
+    - S11
+    - S12
+    - S14
+    - S15
+    - S16
+    - S19
+    - S21
+    - S23
+    - S26
+    - S27
+    - S29
+    - S30
+    - S31
+    - S32
+    - S33
+    - S37
+    - S38
+    - S39
+    val_subjects:
+    - S05
+    - S10
+    - S18
+    - S20
+    - S24
+    - S28
+    - S34
+    - S35
+    test_subjects:
+    - S04
+    - S07
+    - S13
+    - S17
+    - S22
+    - S25
+    - S36
+    - S40
+temporal:
+  sampling_rate_hz: 10
+  t_in: 16
+  t_out: 8
+  train_stride: 2
+  eval_stride: 4
+  normalize_z: true
+  add_latent_noise: true
+  latent_noise_std: 0.0
+  noise_ablation_levels:
+  - 0.0
+  - 0.01
+  - 0.05
+model:
+  pretrained_weights: models/Point-MAE/pretrain.pth
+  num_points: 128
+  num_groups: 16
+  group_size: 16
+  embed_dim: 384
+  depth: 12
+  num_heads: 6
+  num_joints: 17
+  in_channels: 5
+  freeze_encoder: true
+  pose_head_type: cross_attention
+  pose_head_depth: 2
+  pose_head_dropout: 0.2
+  drop_path_rate: 0.1
+dynamics_model:
+  type: temporal_transformer
+  d_model: 384
+  nhead: 12
+  num_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.2
+  loss_type: latent_mse_cosine
+  loss_cos_weight: 0.115
+  drop_path_rate: 0.05
+  loss_vel_weight: 0.063
+training:
+  lr: 0.00015167080056002148
+  weight_decay: 0.00011106236240620214
+  batch_size: 128
+  epochs: 150
+  early_stopping_patience: 35
+  warmup_epochs: 5
+  t_0: 35
+  ema_decay: 0.999
