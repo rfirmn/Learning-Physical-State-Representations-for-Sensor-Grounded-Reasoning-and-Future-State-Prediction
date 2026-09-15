@@ -50,10 +50,13 @@ eksperimen_model/checkpoints/**/*.json
 # ==============================================================================
 datasets/MM-Fi Dataset/filtered_mmwave/
 datasets/MM-Fi_features_v2/
+datasets/MM-Fi_extracted_features/*
+datasets/MM-Fi_grounded_qa/*.jsonl
 datasets/**/*.bin
 datasets/**/*.npy
 !datasets/**/.gitkeep
 !datasets/**/MMFi_action_segments.csv
+!datasets/**/qa_dataset_summary.json
 
 # ==============================================================================
 # Temporary / Scratch / IDE / OS Files

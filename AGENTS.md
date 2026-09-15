@@ -44,9 +44,9 @@ Penalaran Bahasa Alami (Spatial, Temporal, Counterfactual Reasoning)
 | Tahap | Fokus | Input | Output / Target | Status |
 | :---: | :--- | :--- | :--- | :---: |
 | **Tahap 1** | Inisialisasi Bobot 3D | ShapeNet CAD | Bobot Point-MAE Transformer Encoder (**Model A**) | **Selesai** ([models/Point-MAE/pretrain.pth](models/Point-MAE/pretrain.pth)) |
-| **Tahap 2** | Adaptasi Domain Radar & Pose Estimation | Point Cloud Radar MM-Fi ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Aktif** ([eksperimen_model/train_pose.py](eksperimen_model/train_pose.py)) |
-| **Tahap 3** | Pemodelan Dinamika Temporal | Sekuens Status ($Z_{t-k \dots t}$) | Prediksi Masa Depan ($Z_{t+1 \dots t+h}$) | *Next Stage* |
-| **Tahap 4** | Penyelarasan Kognitif ke LLM | Vektor $Z_t$ & $Z_{t+1:t+h}$ | *Pseudo-tokens* untuk penalaran LLM | *Final Stage* |
+| **Tahap 2** | Adaptasi Domain Radar & Pose Estimation | Point Cloud Radar MM-Fi ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Selesai** ([eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth](eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth)) |
+| **Tahap 3** | Pemodelan Dinamika Temporal | Sekuens Status ($Z_{t-k \dots t}$) | Prediksi Masa Depan ($Z_{t+1 \dots t+h}$) | **Selesai** ([eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth](eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth)) |
+| **Tahap 4** | Penyelarasan Kognitif ke SLM | Vektor $Z_t$ & $Z_{t+1:t+h}$ | *Pseudo-tokens* untuk penalaran SLM (Qwen2.5-1.5B) | **Aktif** ([eksperimen_model/train_projector.py](eksperimen_model/train_projector.py)) |
 
 ---
 
@@ -173,19 +173,49 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
 & ".venv\Scripts\python.exe" eksperimen_model/train_mae.py --epochs 20 --batch_size 32
 ```
 
+### 5. Menjalankan Training Pemodelan Dinamika Temporal (Tahap 3):
+- **Master Marathon Pipeline (Tuning + Training 150 Epochs + Evaluation):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/run_autotune_and_train_dynamics.py --n_trials 10 --tuning_epochs 10 --full_epochs 150 --batch_size 64
+  ```
+- **Training Langsung Dynamics Model (EMA & Cosine Warm Restarts):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/train_dynamics.py --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --epochs 150 --batch_size 64
+  ```
+- **Evaluasi Peramalan Masa Depan pada Test Set Unseen:**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_dynamics.py --checkpoint eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --batch_size 64
+  ```
+
+### 6. Menjalankan Penyelarasan Kognitif ke Frozen SLM (Tahap 4):
+- **Sanity Check Pipeline SLM & Token Splicing:**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/test_projector_pipeline.py
+  ```
+- **Training Baseline B2 (Direct Task Probes):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/train_probe.py --epochs 30 --batch_size 128
+  ```
+- **Training Two-Layer MLP Projector Alignment (Qwen2.5-1.5B-Instruct Frozen):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/train_projector.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --epochs 3
+  ```
+- **Evaluasi Ilmiah Penalaran Fisik & Kontrol Shuffling (Held-Out Test Set):**
+  ```powershell
+  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_reasoning.py --projector_checkpoint eksperimen_model/checkpoints/projector/best_projector.pth --config eksperimen_model/configs/mmfi_projector_qwen.yaml --output_json docs/report_training/stage4_reasoning_benchmark.json
+  ```
+
 ---
 
 ## 7. Tugas Berikutnya (*Next Milestones*)
 
 Jika Anda baru ditugaskan ke repositori ini, berikut adalah prioritas langkah selanjutnya:
 
-1. **Memaksimalkan Konvergensi Tahap 2:**
-   - Jalankan `train_pose.py` selama 20–30 epoch pada seluruh subjek latih (`S01`–`S30`) untuk menekan MPJPE validasi mendekati akurasi sentimeter.
-   - Pastikan checkpoint terbaik tersimpan sebagai `model_av2.pth`.
-2. **Memulai Tahap 3 (Dynamics Modeling):**
-   - Rancang modul `DynamicsModel` di `eksperimen_model/models/dynamics_model.py` (Temporal Transformer atau GRU).
-   - Bekukan (*freeze*) bobot `model_av2.pth`.
-   - Gunakan urutan status fisik historis ($Z_{t-k \dots t}$) yang diiris berdasarkan [datasets/MM-Fi Dataset/MMFi_action_segments.csv](datasets/MM-Fi%20Dataset/MMFi_action_segments.csv) untuk memprediksi status masa depan ($Z_{t+1 \dots t+h}$).
-3. **Memulai Tahap 4 (Penyelarasan LLM):**
-   - Buat proyektor linear `PhysicalToLLMAlignmentMLP` (`Linear(384, 1024) -> GELU -> Linear(1024, LLM_DIM)`).
-   - Sambungkan ke LLM *frozen* (misal Qwen-2.5-3B atau Llama-3.2-3B).
+1. **Menuntaskan Training Tahap 4 (MLP Projector):**
+   - Lanjutkan eksekusi `train_projector.py` selama 2–3 epoch hingga konvergen penuh.
+   - Pastikan checkpoint terbaik tersimpan sebagai `eksperimen_model/checkpoints/projector/best_projector.pth`.
+2. **Menjalankan Evaluasi Benchmark & Shuffling Controls:**
+   - Jalankan `evaluate_reasoning.py` untuk mengukur akurasi seluruh baseline (B1–B5) dan uji kontrol shuffling sensor pada subjek test terisolasi (*held-out unseen subjects*).
+   - Validasi bahwa degradasi akurasi saat sinyal diacak (*cross-action shuffling*) melampaui $\ge 35\%$.
+3. **Penyusunan Laporan Ilmiah & Visualisasi:**
+   - Ekspor tabel metrik komprehensif ke `docs/report_training/stage4_reasoning_benchmark.json` dan lampirkan pada naskah Tugas Akhir.

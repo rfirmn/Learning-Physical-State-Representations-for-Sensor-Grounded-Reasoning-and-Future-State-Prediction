@@ -1,0 +1,55 @@
+experiment_name: mmfi_projector_qwen2.5_1.5b
+
+# Base Language Model Configuration (Strictly Frozen)
+model:
+  base_model: "Qwen/Qwen2.5-1.5B-Instruct"
+  in_dim: 384
+  hidden_dim: 1024
+  out_dim: 1536
+  dropout: 0.1
+  freeze_slm: true
+  use_gradient_checkpointing: true
+  torch_dtype: "bfloat16"
+
+# Spatio-Temporal Physical Tokenizer (13 tokens total)
+physical_tokens:
+  num_history_tokens: 4     # Subsampled from 16 historical frames
+  num_current_tokens: 1     # Current frame state z_t (Model Av2)
+  num_future_tokens: 8      # Future horizon t+1..t+8 (Dynamics Model)
+  total_physical_tokens: 13
+  token_dim: 384
+
+# Grounded QA Dataset
+dataset:
+  qa_dir: "datasets/MM-Fi_grounded_qa"
+  features_dir: "datasets/MM-Fi_features_v2"
+  train_file: "datasets/MM-Fi_grounded_qa/mmfi_grounded_qa_train.jsonl"
+  val_file: "datasets/MM-Fi_grounded_qa/mmfi_grounded_qa_val.jsonl"
+  test_file: "datasets/MM-Fi_grounded_qa/mmfi_grounded_qa_test.jsonl"
+  max_seq_len: 256
+
+# Training Hyperparameters (Optimized for RTX 3060 12GB)
+training:
+  epochs: 5
+  micro_batch_size: 2
+  gradient_accumulation_steps: 8  # Effective batch size = 16
+  learning_rate: 1.0e-4
+  min_learning_rate: 1.0e-6
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  max_grad_norm: 1.0
+  lr_scheduler_type: "cosine"
+  save_every_epoch: true
+  eval_every_epoch: true
+  output_dir: "eksperimen_model/checkpoints/projector"
+  seed: 42
+
+# Scientific Baselines & Ablations Configuration
+baselines:
+  run_b1_blind_text: true
+  run_b2_direct_probe: true
+  run_b3_no_future: true
+  run_b4_proposed_full: true
+  run_b5_oracle_upper_bound: true
+  run_cross_action_shuffling: true
+  run_within_action_shuffling: true
