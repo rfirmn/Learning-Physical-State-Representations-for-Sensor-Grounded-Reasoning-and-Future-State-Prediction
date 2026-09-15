@@ -1,0 +1,11 @@
+{
+  "tau_active_p75_mps": 0.4750945568084717,
+  "train_samples": 70336,
+  "val_samples": 12740,
+  "test_samples": 12196,
+  "total_samples": 95272,
+  "train_stride": 4,
+  "val_stride": 8,
+  "test_stride": 8,
+  "unseen_test_templates": true
+}
