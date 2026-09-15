@@ -1,0 +1,104 @@
+experiment_name: mmfi_dynamics_v3
+
+# Academic Protocol: MM-Fi Protocol 3 (All 27 Actions) + Leakage-Controlled Cross-Subject Split
+dataset:
+  root_dir: datasets/MM-Fi Dataset/filtered_mmwave
+  features_output_dir: datasets/MM-Fi_features_v2
+  segments_csv: datasets/MM-Fi Dataset/MMFi_action_segments.csv
+  encoder_checkpoint: eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth
+  num_points: 128
+  use_extra_features: true
+  environments:
+    - E01
+    - E02
+    - E03
+    - E04
+  protocol: protocol3  # P3: All 27 actions (14 daily + 13 rehab)
+  split:
+    type: custom_stratified_cross_subject  # Leakage-controlled 60/20/20 cross-subject partition
+    # 24 Training subjects (seen by Model Av2 and Dynamics Model)
+    train_subjects:
+      - S01
+      - S02
+      - S03
+      - S06
+      - S08
+      - S09
+      - S11
+      - S12
+      - S14
+      - S15
+      - S16
+      - S19
+      - S21
+      - S23
+      - S26
+      - S27
+      - S29
+      - S30
+      - S31
+      - S32
+      - S33
+      - S37
+      - S38
+      - S39
+    # 8 Validation subjects (used for early stopping)
+    val_subjects:
+      - S05
+      - S10
+      - S18
+      - S20
+      - S24
+      - S28
+      - S34
+      - S35
+    # 8 Held-out Test subjects (NEVER seen by Model Av2, Dynamics Model, or Downstream LLM)
+    test_subjects:
+      - S04
+      - S07
+      - S13
+      - S17
+      - S22
+      - S25
+      - S36
+      - S40
+
+# Temporal Sequence Configuration Used in This Study
+temporal:
+  sampling_rate_hz: 10 # MM-Fi uniform sensor sampling frequency (10 Hz = 100ms/frame)
+  t_in: 16             # 1.6s history context (Methodological choice for human motion inertia)
+  t_out: 8             # 0.8s future prediction horizon (Short-to-medium term dynamics)
+  train_stride: 2      # Stride for sliding window in training set
+  eval_stride: 4       # Stride for validation/test evaluation
+  normalize_z: true    # Z-score standardize latent vectors using train-only statistics
+  add_latent_noise: true # Train-time latent perturbation robustness
+  latent_noise_std: 0.01 # Standard deviation in standardized latent space
+  noise_ablation_levels: [0.0, 0.01, 0.05]
+
+# Perception Backbone Architecture (Model Av2 - Frozen)
+model:
+  pretrained_weights: models/Point-MAE/pretrain.pth
+  num_points: 128
+  num_groups: 16
+  group_size: 16
+  embed_dim: 384
+  depth: 12
+  num_heads: 6
+  num_joints: 17
+  in_channels: 5
+  freeze_encoder: true
+  pose_head_type: cross_attention
+  pose_head_depth: 2
+  pose_head_dropout: 0.2
+  drop_path_rate: 0.1
+
+# Frozen-Representation Latent Dynamics Model (JEPA-inspired predictor)
+dynamics_model:
+  type: temporal_transformer
+  d_model: 384
+  nhead: 6
+  num_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+  loss_type: latent_mse_cosine
+  loss_cos_weight: 0.2

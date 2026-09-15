@@ -49,6 +49,7 @@ eksperimen_model/checkpoints/**/*.json
 # Datasets (Do NOT track 260,000 raw radar files in git)
 # ==============================================================================
 datasets/MM-Fi Dataset/filtered_mmwave/
+datasets/MM-Fi_features_v2/
 datasets/**/*.bin
 datasets/**/*.npy
 !datasets/**/.gitkeep
