@@ -1,16 +1,24 @@
-8. Dataset dan training
+8. Dataset dan kurikulum pelatihan
 
-Berikut adalah gambaran bagaimana ketiga fase tersebut melebur menjadi 1 model utuh:
-1. Peran Muler / Dataset Prototype (Fase 1)
-Fase: Menggunakan dataset sederhana (seperti MVRHAR).
-Hasil: Menghasilkan modul Sensor Encoder yang dasar. Modul ini menjadi fondasi pertama untuk memastikan sinyal mentah radar berhasil diterjemahkan menjadi angka koordinat/vektor yang bersih.
-2. Peran Dataset Utama / MM-Fi (Fase 2)
-Fase: Menggunakan dataset yang lebih kaya (MM-Fi dengan 3D skeleton dan dinamika spasial).
-Hasil: Model Encoder dari Fase 1 diperkaya kemampuannya, lalu disambungkan dengan Dynamics Model untuk memprediksi masa depan ($S_t \rightarrow S_{t+k}$). Pada titik ini, Anda sudah memiliki satu modul persepsi dan prediksi fisik yang utuh.
-3. Peran Dataset Lanjutan / M4Human (Fase 3 - Opsional/Extension)
-Fase: Menggunakan dataset paling kompleks untuk stress test.
-Hasil: Menyempurnakan ketahanan (robustness) dari model fisik dan dinamika yang sudah dibangun di Fase 2 agar tidak mudah patah saat menghadapi gerakan manusia yang liar dan cepat.
-Wujud Akhir Saat Digunakan (Inference)
-Ketika model ini sudah matang melalui ketiga fase tersebut, kode program Anda hanya akan mengeksekusi 1 pipeline tunggal yang menerima input dan mengeluarkan output akhir:
-$$\text{Input: mmWave Radar Point Cloud} \quad \longrightarrow \quad \mathbf{[ 1 \text{ Model Utuh}]*} \quad \longrightarrow \quad \text{Output: Jawaban Reasoning LLM}$$
-*Catatan di dalam kotak [1 Model Utuh]: Berisi rangkaian fungsi yang sudah menyatu—mulai dari Encoder yang membaca radar, Dynamics Model yang menghitung arah/kecepatan, hingga LLM yang membaca hasil vektor tersebut untuk menjawab pertanyaan relasional atau kontrafaktual.
+Berikut adalah bagaimana 4 tahapan kurikulum pelatihan terintegrasi menjadi satu kesatuan sistem end-to-end:
+
+1. **Tahap 1: Inisialisasi Bobot Geometri 3D (Transfer Learning)**
+   - **Data & Model:** Bobot *pretrained* Point-MAE Transformer yang telah dilatih secara *self-supervised* pada dataset geometri 3D berskala besar (ShapeNet CAD, 348 MB).
+   - **Hasil:** Menghasilkan modul Sensor Encoder dasar (**Model A**) yang memiliki pemahaman *prior* tentang geometri dan struktur spasial 3D tanpa harus melatih dari nol pada sinyal radar yang berderau.
+
+2. **Tahap 2: Adaptasi Domain Radar mmWave & Estimasi Status Fisik (MM-Fi)**
+   - **Data:** Dataset utama MM-Fi Protocol 3 (262.297 frame radar $N=128$ point cloud tersinkronisasi dengan 1.080 sekuens ground truth 17 sendi 3D skeleton).
+   - **Hasil:** Model Encoder diadaptasikan ke domain sinyal radar melalui *task* regresi 3D pose estimation (**Model Av2**). Representasi laten $Z_t \in \mathbb{R}^{384}$ terbukti berhasil mempertahankan konfigurasi fisik tubuh subjek sebelum modul ini dibekukan (*frozen*).
+
+3. **Tahap 3: Pemodelan Dinamika Temporal (Dynamics Model)**
+   - **Data:** Sekuens status laten $Z_{t-15 \dots t}$ ($T_{in}=16$ frame atau rentang 1.6 detik @ 10 Hz).
+   - **Hasil:** Melatih model dinamika temporal berbasis *autoregressive / sequence-to-sequence* untuk memproyeksikan lintasan laten masa depan $\hat{Z}_{t+1 \dots t+8}$ ($T_{out}=8$ frame atau 0.8 detik ke depan). Modul ini dibekukan setelah mencapai konvergensi representasi dinamika.
+
+4. **Tahap 4: Penyelarasan Kognitif ke Frozen SLM (Two-Layer MLP Projector)**
+   - **Data & Arsitektur:** Pasangan token representasi fisik ($Z_{hist}$ dan $\hat{Z}_{future}$) yang diproyeksikan ke *embedding space* model bahasa kecil (Qwen2.5-1.5B-Instruct) yang **100% dibekukan** (*strictly frozen*).
+   - **Hasil:** Adapter proyektor MLP (~1.97M parameter) menghubungkan ruang laten fisik sensor dengan pemahaman bahasa alami, memungkinkan SLM melakukan penalaran spasial-temporal tanpa merusak kapabilitas linguistik dasarnya.
+
+### Wujud Akhir Saat Digunakan (Inference)
+Ketika seluruh modul terintegrasi, sistem beroperasi dalam satu alur terarah (*decoupled pipeline*):
+$$\text{mmWave Radar Cloud } (X_{t-k:t}) \longrightarrow \mathbf{[ \text{Encoder } (\text{Av2}) ]} \longrightarrow \mathbf{[ \text{Dynamics Model} ]} \longrightarrow \mathbf{[ \text{MLP Projector} ]} \longrightarrow \mathbf{[ \text{Frozen SLM} ]} \longrightarrow \text{Jawaban Reasoning}$$
+*Catatan:* Pemisahan tegas (*decoupling*) ini menjamin bahwa setiap komponen persepsi fisik, pemodelan dinamika, dan penalaran kognitif dapat diisolasi, diverifikasi, dan diuji secara independen.

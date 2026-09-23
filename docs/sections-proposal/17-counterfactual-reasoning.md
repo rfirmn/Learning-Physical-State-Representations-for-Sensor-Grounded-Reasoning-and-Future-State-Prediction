@@ -1,41 +1,19 @@
-17. Counterfactual reasoning
+17. Counterfactual reasoning & sensor controls
 
-Counterfactual evaluation menjadi salah satu evaluasi grounding terpenting.
+Evaluasi kontrafaktual dan kontrol pengacakan (*sensor shuffling controls*) merupakan pilar utama untuk membuktikan bahwa model bahasa benar-benar bertumpu pada sinyal fisik sensor (**sensor grounding**), bukan sekadar menebak berdasarkan bias linguistik atau hafalan teks (*language hallucination*).
 
-Contoh:
+Karena status fisik dalam riset ini direpresentasikan oleh vektor laten kontinu $Z_t \in \mathbb{R}^{384}$ hasil ekstraksi Point-MAE dari point cloud radar, intervensi kontrafaktual dilakukan secara empiris melalui gangguan terukur pada domain sensor:
 
-Original
+### 1. Cross-Action Shuffling Control (Intervensi Fisik Antar-Aksi)
+* **Skenario:** Mengganti sekuens point cloud radar aktual dengan sekuens dari aksi fisik yang sangat berbeda (misalnya: radar dari gerakan melompat dimasukkan ke dalam pertanyaan tentang merentangkan tangan).
+* **Ekspektasi Grounding:** Jika model benar-benar membaca representasi sensor, akurasi penalaran harus **turun drastis (*performance drop*)**. Jika akurasi tetap tinggi, berarti LLM menjawab hanya dari prior teks pertanyaan tanpa memedulikan sinyal radar.
 
-A:
-position = (1,2)
-velocity = (+1,0)
-B:
-position = (4,2)
-velocity = (0,0)
+### 2. Within-Action Temporal Shuffling / Reversal (Intervensi Dinamika Kausalitas)
+* **Skenario:** Membalikkan urutan waktu frame radar ($t_k \rightarrow t_1$) atau mengacak urutan temporal frame dalam satu aksi.
+* **Ekspektasi Grounding:** Pada pertanyaan kinematika dan prediksi masa depan (*future-state prediction*), pembalikan urutan waktu harus membalikkan arah prediksi (misalnya dari *increasing separation* menjadi *decreasing separation*).
 
-Model memprediksi:
+### Metrik Pembuktian: Shuffling Degradation Gap
+Tingkat keterikatan fisik (*physical grounding*) diukur melalui selisih degradasi kinerja:
+$$\Delta_{\text{Grounding}} = \text{Accuracy}_{\text{Original}} - \text{Accuracy}_{\text{Shuffled}}$$
 
-A approaches B
-
-Kemudian physical state diubah:
-
-Counterfactual
-
-A:
-position = (1,2)
-velocity = (-1,0)
-
-Model seharusnya menghasilkan:
-
-A moves away from B
-
-Untuk future prediction:
-
-Original
-     ↓
-Trajectory A₁
-Counterfactual
-     ↓
-Trajectory A₂
-
-Trajectory harus berubah secara konsisten dengan intervention.
+Semakin besar nilai $\Delta_{\text{Grounding}}$, semakin kuat bukti ilmiah bahwa penalaran model benar-benar didorong oleh representasi fisik sensorik mmWave radar.

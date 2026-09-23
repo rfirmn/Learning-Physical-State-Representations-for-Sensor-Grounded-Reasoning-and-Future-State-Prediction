@@ -1,6 +1,14 @@
 # Analisis Komprehensif Hasil Evaluasi Benchmark Tahap 4
 **Penyelarasan Kognitif Lintas-Modalitas: Two-Layer MLP Projector & Frozen SLM (Qwen2.5-1.5B-Instruct)**
 
+> [!WARNING]
+> **CATATAN AUDIT ILMIAH & STATUS DOKUMEN: INCONCLUSIVE / HISTORICAL AUDIT TRAIL**  
+> Dokumen ini memuat analisis terhadap pengujian **Batch 1 (Iterasi Awal Tahap 4)**. Melalui audit metodologis menyeluruh (lihat [docs/implementation_plan_stage4_recovery.md](implementation_plan_stage4_recovery.md) dan [AGENTS.md](../AGENTS.md)), ditemukan bahwa:
+> 1. Normalisasi per-frame pada preprocessing memusatkan point cloud dan menskalakannya, sehingga **informasi koordinat absolut (centroid XYZ, skala meter) telah terhapus sebelum mencapai encoder**. Oleh karena itu, pengujian estimasi metrik absolut (Depth MAE dalam meter) pada representasi laten $Z_t$ tidak valid secara fisika sensor.
+> 2. Perbandingan B4 vs B3 pada Batch 1 tidak seimbang karena B4 menerima riwayat 16 frame melalui Dynamics Model sementara B3 hanya menerima 5 token laten.
+> 
+> Dokumen ini sengaja dipertahankan sebagai **jejak audit ilmiah (*negative result / lesson learned*)** mengenai bahaya menguji besaran metrik absolut pada representasi yang telah dinormalisasi. Untuk rancangan, runbook, dan kontrak eksperimen Tahap 4 yang sah (berbasis geometri tubuh relatif), silakan merujuk ke **[docs/stage4_recovery_runbook.md](stage4_recovery_runbook.md)** dan **[docs/implementation_plan_stage4_recovery.md](implementation_plan_stage4_recovery.md)**.
+
 *Penelitian Tugas Akhir:*  
 > **Learning Physical State Representations for Sensor-Grounded Reasoning and Future-State Prediction**  
 > *(Pemodelan Representasi Fisik Spasial-Temporal dan Penyelarasan LLM Berbasis Sinyal Radar mmWave)*

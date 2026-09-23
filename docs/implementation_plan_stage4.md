@@ -1,5 +1,9 @@
 # Rencana Implementasi Komprehensif (Master Plan): Penyelarasan Kognitif Lintas-Modalitas (MLP Projector & Sensor-Grounded SLM Inference)
 
+> [!WARNING]
+> **STATUS RENCANA: DIREVISI OLEH RENCANA PEMULIHAN (REVISI 2)**  
+> Desain awal pada dokumen ini (khususnya skema 13 token dan 5 kategori tugas metrik absolut) telah direvisi secara mendasar. Melalui evaluasi matematis pada preprocessing encoder, estimasi metrik absolut (kedalaman meter) ditunda karena normalisasi per-frame memusatkan point cloud. Metodologi aktif yang diadopsi saat ini berlandaskan pada geometri tubuh relatif dan penyetaraan token 16/24 (B3/B3P/B4). Silakan merujuk ke **[docs/implementation_plan_stage4_recovery.md](implementation_plan_stage4_recovery.md)** untuk rencana implementasi terbaru.
+
 Dokumen ini adalah **panduan implementasi teknis dan ilmiah lengkap** untuk mengeksekusi **Tahap 4 (Penyelarasan Kognitif Lintas-Modalitas)** pada penelitian Tugas Akhir:
 > **Learning Physical State Representations for Sensor-Grounded Reasoning and Future-State Prediction**  
 > *(Fondasi Menuju Predictive World Modeling dan Embodied AI Berbasis Sinyal Radar mmWave)*

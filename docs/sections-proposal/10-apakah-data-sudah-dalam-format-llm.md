@@ -15,7 +15,7 @@ SNR
 
 bukan:
 
-"Person A is moving toward B."
+"Subjek sedang merentangkan kedua tangan ke samping."
 
 dan bukan pula:
 

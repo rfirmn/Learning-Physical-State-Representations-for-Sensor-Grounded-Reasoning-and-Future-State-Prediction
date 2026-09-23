@@ -51,8 +51,9 @@ gunakan frozen LLM sebagai baseline dan pisahkan kontribusi sensor-side dengan L
 
 --------
 
-Risiko 5 — Dataset terlalu sederhana
+Risiko 5 — Dataset terlalu sederhana atau terbatas pada satu lingkungan
 
 Solusi:
 
-mulai dari dataset controlled untuk feasibility, kemudian gunakan M4Human sebagai extension.
+mulai dari lingkungan terkontrol (*Environment E01*), kemudian uji generalisasi dan robustness model pada variasi lingkungan berbeda (*Cross-Environment E02–E04* pada dataset MM-Fi).
+

@@ -1,6 +1,10 @@
 # Laporan Hasil Evaluasi dan Benchmark Ilmiah Tahap 4
 **Penyelarasan Kognitif Lintas-Modalitas: Two-Layer MLP Projector ke Frozen SLM (Qwen2.5-1.5B-Instruct)**
 
+> [!WARNING]
+> **STATUS DOKUMEN: INCONCLUSIVE / HISTORICAL BATCH 1 RESULTS**  
+> Tabel metrik di bawah ini adalah rekaman pengujian awal **Batch 1 (17 September 2026)** yang telah dibatalkan sebagai kesimpulan ilmiah karena isu normalisasi per-frame (kehilangan centroid & skala meter) serta parser yang tidak sinkron dengan template tes. Dokumen ini dipertahankan sebagai jejak audit penelitian. Untuk implementasi dan benchmark pemulihan yang sah, lihat [docs/stage4_recovery_runbook.md](stage4_recovery_runbook.md) dan [docs/implementation_plan_stage4_recovery.md](implementation_plan_stage4_recovery.md).
+
 - **Evaluasi Dataset:** Held-Out Unseen Test Split (Subjek S04, S07, S13, S17, S22, S25, S36, S40)
 - **Komparasi Baseline & Ablasi:** B1 (Blind Text), B3 (No-Future), B4 (Proposed Full Pipeline), Negative Controls (Cross & Within-Action Shuffling).
 

@@ -26,14 +26,14 @@ $$\text{Sensor Observation} \longrightarrow \text{Physical State } (Z_t) \longri
 Tugas_Akhir/
 ├── docs/
 │   ├── onboarding.md                 <-- [Anda berada di sini] Panduan pengenalan proyek
-│   ├── draft_proposal.md             <-- Draft proposal penelitian lengkap (single document)
+│   ├── stage4_recovery_runbook.md    <-- Runbook operasional Tahap 4
 │   ├── eksperimen_model.md           <-- Rencana teknis arsitektur & 4 tahap training curriculum
-│   └── sections-proposal/                     <-- 35 section terpisah dari draft proposal untuk navigasi cepat
+│   └── sections-proposal/            <-- 35 modul rancangan proposal penelitian
+│       ├── 0-catatan-transisi-proposal-ke-implementasi.md
 │       ├── 1-judul-penelitian.md
-│       ├── 2-posisi-penelitian.md
 │       ├── ...
 │       └── 35-ringkasan-satu-kalimat.md
-└── eksperimen_model/                 <-- Direktori kode implementasi PyTorch, data loader, & notebook
+└── eksperimen_model/                 <-- Direktori kode implementasi PyTorch, data loader, & evaluasi
 ```
 
 ---
@@ -46,16 +46,16 @@ Prinsip utama penelitian ini adalah **modularitas (*decoupling*)**: memisahkan m
 flowchart TD
     subgraph RF["RANAH FISIK (Persepsi & Dinamika Sensor)"]
         Raw["mmWave Radar Point Cloud<br/>(x, y, z, Doppler, SNR)"]
-        Enc["Sensor Encoder<br/>(PointNet / Point Transformer)"]
+        Enc["Sensor Encoder<br/>(Point-MAE Transformer Backbone)"]
         Zt["Physical State Representation (Z_t)<br/>(Posisi, Postur, 3D Skeleton)"]
-        Dyn["Dynamics Model<br/>(GRU / LSTM / Small Transformer)"]
-        Future["Future State Prediction<br/>(Z_t+1 : t+k)"]
+        Dyn["Dynamics Model<br/>(Residual Temporal Transformer)"]
+        Future["Future State Prediction<br/>(Z_t+1 : t+8)"]
     end
 
     subgraph RK["RANAH KOGNITIF (Penyelarasan & Bahasa)"]
         MLP["MLP Cross-Modal Projector<br/>(Linear + GELU)"]
-        LLM["Frozen Large Language Model<br/>(Llama / Qwen)"]
-        Prompt["Task Prompt & Context<br/>(Pertanyaan Spasial/Temporal/Counterfactual)"]
+        LLM["Frozen Large Language Model<br/>(Qwen2.5-1.5B-Instruct)"]
+        Prompt["Task Prompt & Context<br/>(Pertanyaan Geometri Relatif / Perubahan Temporal)"]
         Output["Penalaran Bahasa Alami<br/>(Spatial, Temporal, Relational, Future Reasoning)"]
     end
 
@@ -72,7 +72,7 @@ flowchart TD
 
 ### Komponen Utama:
 1. **Sensor Encoder**: Mengekstrak *sparse point clouds* radar menjadi vektor representasi keadaan fisik ($Z_t$).
-2. **Dynamics Model**: Mempelajari hukum gerak temporal dari $Z_{t-k \dots t}$ untuk memprediksi keadaan di masa depan ($Z_{t+1 \dots t+h}$).
+2. **Dynamics Model**: Mempelajari hukum gerak temporal dari $Z_{t-15 \dots t}$ ($1.6$s) untuk memprediksi keadaan di masa depan ($Z_{t+1 \dots t+8}$, $0.8$s).
 3. **MLP Alignment Module**: Jembatan ringan yang memproyeksikan vektor fisik ke ruang embedding LLM sebagai *pseudo-tokens*.
 4. **Frozen LLM**: Berfungsi murni sebagai mesin penalaran (*reasoning engine*), tidak dilatih ulang dari nol.
 
@@ -84,12 +84,12 @@ Untuk menghindari beban komputasi besar dan memastikan kestabilan representasi, 
 
 | Tahap | Fokus Pelatihan | Komponen yang Dilatih | Komponen Beku (*Frozen*) | Target / Output |
 |---|---|---|---|---|
-| **Tahap 1** | Inisialisasi Persepsi | Sensor Encoder (dari nol) | - | Adaptasi terhadap noise dasar sensor mmWave (Model A) |
-| **Tahap 2** | Pematangan Persepsi | Sensor Encoder (Fine-tuning) | - | Pemetaan akurat ke representasi fisik/3D skeleton (Model Av2) |
-| **Tahap 3** | Pemodelan Dinamika | Dynamics Model | Sensor Encoder (Frozen) | Peramalan lintasan & perubahan status fisik di masa depan |
-| **Tahap 4** | Penyelarasan Kognitif | MLP Projector | Encoder, Dynamics, & LLM (Semua Frozen) | LLM memahami token representasi fisik & mampu menjawab prompt QA |
+| **Tahap 1** | Inisialisasi Persepsi 3D | Point-MAE Backbone | - | Transfer learning bobot geometris ShapeNet 3D CAD (Model A) |
+| **Tahap 2** | Pematangan Persepsi Radar | Sensor Encoder (Fine-tuning Av2) | - | Pemetaan akurat ke representasi fisik/17-joint 3D skeleton (Model Av2) |
+| **Tahap 3** | Pemodelan Dinamika Temporal | Dynamics Model (Residual Transformer)| Sensor Encoder (Frozen) | Peramalan lintasan & perubahan status fisik masa depan (T_out=8) |
+| **Tahap 4** | Penyelarasan Kognitif | Two-Layer MLP Projector | Encoder, Dynamics, & SLM (Semua Frozen) | SLM memahami token fisik & bernalar atas geometri relatif tubuh |
 
-> Rincian lengkap teknis kurikulum eksperimen dapat dibaca di [docs/eksperimen_model.md](file:///c:/Users/Rio%20Aslab/Documents/pemrograman/Tugas_Akhir/docs/eksperimen_model.md).
+> Rincian lengkap teknis kurikulum eksperimen dapat dibaca di [docs/eksperimen_model.md](eksperimen_model.md).
 
 ---
 

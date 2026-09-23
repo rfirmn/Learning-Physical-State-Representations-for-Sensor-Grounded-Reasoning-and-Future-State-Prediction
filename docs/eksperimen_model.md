@@ -76,7 +76,7 @@ Tindakan: Memuat bobot "Model A", lalu melakukan *fine-tuning* langsung mengguna
 Tujuan: Mengadaptasi pengetahuan geometris 3D ke domain sinyal radar dan mempertajam akurasi Physical State Representation ($Z_t$) secara anatomis (3D skeleton estimation).
 
 Status Model: Menghasilkan "Model Av2" (Encoder Utama). Setelah tahap ini selesai, seluruh bobot Encoder dibekukan (frozen).
-*Catatan Hasil Eksperimen Lapangan:* Dokumentasi evaluasi kuantitatif lengkap, metrik MPJPE per sendi, dan status checkpoint dapat dilihat di [docs/laporan_eksperimen_1.md](file:///c:/Users/Rio%20Aslab/Documents/pemrograman/Tugas_Akhir/docs/laporan_eksperimen_1.md).
+*Catatan Hasil Eksperimen Lapangan:* Dokumentasi evaluasi kuantitatif lengkap, metrik MPJPE per sendi, dan status checkpoint Model Av2 dapat dilihat di [docs/laporan_teknis_training_dan_evaluasi_v2.md](laporan_teknis_training_dan_evaluasi_v2.md).
 
 Tahap 3: Pemahaman Waktu (Training Dynamics Model - Fase 3)
 

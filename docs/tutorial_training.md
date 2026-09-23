@@ -45,22 +45,22 @@ Sebelum memulai pelatihan berdurasi panjang, selalu jalankan verifikasi cepat (h
 
 ## 3. Langkah 2: Menjalankan Pelatihan (Training)
 
-### Opsi A: Pelatihan Skala Penuh (Rekomendasi Utama — 30 Epochs)
-Perintah ini akan melatih model pada seluruh 24 subjek latih di 4 environment:
+### Opsi A: Pelatihan Model Av2 Penuh (Rekomendasi Utama — 100 Epochs / Early Stopping)
+Perintah ini akan melatih Model Av2 pada seluruh 24 subjek latih di 4 environment dengan konfigurasi optimal:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --epochs 30 --batch_size 32
+& ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --epochs 100
 ```
 
-### Opsi B: Pelatihan Cepat / Verifikasi Awal (Contoh: 5 Epochs)
-Jika Anda ingin memastikan seluruh siklus berjalan cepat sebelum melatih 30 epoch penuh:
+### Opsi B: Pelatihan Otomatis Penuh (Autotune + Full Training)
+Menjalankan eksplorasi hyperparameter diikuti pelatihan penuh dan evaluasi test set secara otomatis:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --epochs 5 --batch_size 32
+& ".venv\Scripts\python.exe" eksperimen_model/run_autotune_and_train.py --n_trials 5 --tuning_epochs 8 --full_epochs 100 --batch_size 128
 ```
 
 ### Opsi C: Pelatihan dengan Penyesuaian `num_workers` (Jika Disk I/O Lambat)
 Jika proses *loading* data terasa berat atau terjadi *warning* stall:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/train_pose.py --epochs 30 --batch_size 32 --num_workers 2
+& ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --epochs 100 --num_workers 2
 ```
 
 ---

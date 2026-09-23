@@ -33,15 +33,15 @@ Model yang hanya mampu melakukan:
 
 belum tentu mampu melakukan:
 
-“Where is person A?”
+“Bagaimana postur dan konfigurasi tubuh subjek saat ini?”
 
-“Is A approaching B?”
+“Apakah kedua tangan subjek sedang terangkat atau merapat ke torso?”
 
-“How will A’s position change?”
+“Bagaimana geometri artikulasi tubuh akan berubah dalam rentang waktu berikutnya?”
 
-“Where will A be after 1 second?”
+“Di mana posisi relatif sendi pergelangan tangan setelah 0.8 detik?”
 
-“What would happen if A changed direction?”
+“Bagaimana perubahan penalaran jika urutan dinamika fisik sensorik diintervensi?”
 
 Pertanyaan tersebut membutuhkan pemahaman terhadap:
 

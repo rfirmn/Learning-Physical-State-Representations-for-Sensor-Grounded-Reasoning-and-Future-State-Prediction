@@ -32,7 +32,7 @@ Seluruh representasi fisik diekstraksi dari **Model Av2** (`model_av2.pth`) yang
 - **Attention Heads:** `12`
 - **Feedforward Dimension:** `1024`
 - **Dropout / Drop Path:** `0.2` / `0.05`
-- **Temporal Windows:** $T_{in} = 16$ frame (0.8s) $\rightarrow T_{out} = 8$ frame (0.4s)
+- **Temporal Windows:** $T_{in} = 16$ frame (1.6s @ 10 Hz) $\rightarrow T_{out} = 8$ frame (0.8s @ 10 Hz)
 - **Loss Weights:** $\mathcal{L}_{total} = \mathcal{L}_{MSE} + 0.115 \cdot \mathcal{L}_{cos} + 0.063 \cdot \mathcal{L}_{vel}$
 - **Learning Rate:** `0.00015167080056002148` (Cosine Annealing with Warm Restarts)
 - **Model EMA Decay:** `0.999`

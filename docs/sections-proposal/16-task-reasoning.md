@@ -1,32 +1,28 @@
 16. Task reasoning
 
-Setelah physical representation berhasil dibangun, LLM digunakan untuk reasoning.
+Setelah representasi fisik berhasil dipelajari dan disejajarkan melalui modul proyektor, model bahasa (Frozen SLM) digunakan untuk melakukan *sensor-grounded physical reasoning* terhadap subjek yang diamati radar:
 
-Task 1 — State reasoning
+### Task 1 — State & Posture Reasoning
+* Bagaimana konfigurasi postur tubuh subjek saat ini (berdiri, duduk, membungkuk)?
+* Di mana posisi relatif lengan terhadap torso dan kepala?
+* Apakah kedua pergelangan tangan berada di atas atau di bawah bahu?
 
-* Where is person A?
-* What is the movement direction?
-* How many people are present?
+### Task 2 — Spatial Geometry Reasoning (Body-Relative Geometry)
+* Berapa rasio jarak antar-pergelangan tangan relatif terhadap lebar bahu (*current wrist separation*: narrow, medium, wide)?
+* Apakah lengan kiri berada lebih tinggi atau lebih rendah daripada lengan kanan?
+* Apakah orientasi tubuh condong ke arah kiri atau kanan relatif terhadap posisi radar?
 
-Task 2 — Spatial reasoning
+### Task 3 — Temporal & Kinematic Reasoning
+* Apakah anggota tubuh sedang bergerak mendekat (*positive Doppler*) atau menjauh (*negative Doppler*) terhadap sensor?
+* Apakah gerakan tangan mengalami percepatan atau deselerasi antara frame $t_1$ dan $t_2$?
+* Berapa fase siklus pergerakan yang telah dilalui subjek selama rentang observasi 1.6 detik?
 
-* Is A to the left or right of B?
-* Who is closer to the radar?
-* What is the relative distance between A and B?
+### Task 4 — Relational Kinematics Reasoning
+* Apakah kedua tangan bergerak secara simetris atau asimetris?
+* Apakah jarak antara tangan dan torso sedang merenggang atau menyempit?
+* Bagaimana koordinasi pergerakan antara tungkai bawah dan lengan atas?
 
-Task 3 — Temporal reasoning
-
-* Did A move toward or away from B?
-* Did A accelerate?
-* What changed between (t_1) and (t_2)?
-
-Task 4 — Relational reasoning
-
-* Are A and B moving toward each other?
-* Is the distance between them increasing or decreasing?
-
-Task 5 — Future-state reasoning
-
-* Where will A likely be after 1 second?
-* Will A become closer to B?
-* What is the expected future movement?
+### Task 5 — Future-State Reasoning
+* Bagaimana perubahan separasi pergelangan tangan dalam rentang 0.8 detik ke depan (*future wrist separation change*: narrowing, unchanged, widening)?
+* Apakah subjek diprediksi akan menyelesaikan gerakan mengangkat tangan atau kembali ke posisi istirahat?
+* Apakah lintasan dinamika masa depan konsisten dengan momentum dan inersia yang diobservasi pada jendela historis?

@@ -28,9 +28,9 @@ LLM role
 
 Reasoning layer
 
-Adaptation
+Language Interface
 
-Optional PEFT / LoRA
+Two-Layer MLP Projector (LLM is Strictly Frozen)
 
 Main contribution
 
@@ -38,8 +38,8 @@ Analysis of physical-information preservation and predictive capability of learn
 
 Strong evaluation
 
-Counterfactual consistency + environment/subject shift
+Sensor Shuffling Controls (Cross-Action / Within-Action) + Cross-Subject / Cross-Environment Held-Out Evaluation
 
 Dataset
 
-Spatial mmWave Radar Point Cloud Dataset as primary feasibility dataset, with M4Human as an extension
+MM-Fi Dataset (Protocol 3, mmWave Radar Point Cloud) with ShapeNet 3D CAD Pretrained Point-MAE Initialization
