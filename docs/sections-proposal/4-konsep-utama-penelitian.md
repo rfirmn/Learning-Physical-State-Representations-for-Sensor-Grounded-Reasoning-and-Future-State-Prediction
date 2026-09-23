@@ -36,8 +36,8 @@ Reasoning
 
 Apa yang dapat disimpulkan dari state dan dynamics?
 
-Who is closer?
-Is A approaching B?
-What will happen next?
+Bagaimana konfigurasi postur tubuh subjek saat ini?
+Apakah kedua tangan sedang terangkat atau merapat ke torso?
+Bagaimana perubahan konfigurasi tubuh pada langkah waktu berikutnya?
 
 Struktur ini menjadi dasar eksperimen.
