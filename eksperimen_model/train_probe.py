@@ -1,227 +1,304 @@
-"""
-train_probe.py
-Baseline B2: Direct Linear / Multi-Layer Perceptron (MLP) Probe.
-Trains lightweight direct task probes directly from the physical latent representation z_t (384d)
-to benchmark raw classification and regression performance against the generative SLM.
-"""
+"""B2 probes for the two validated relative wrist-separation QA tasks."""
 
-import os
-import sys
-import json
-import time
 import argparse
-import numpy as np
+import hashlib
+import json
+import random
+from collections import Counter
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
-from typing import Dict, List, Any
+from torch.utils.data import DataLoader, Dataset
 
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+
+CLASS_NAMES = {
+    "current_wrist_separation": ("narrower", "wider"),
+    "future_wrist_separation_change": ("closing", "stable", "opening"),
+}
+TASK_NAMES = tuple(CLASS_NAMES)
+HISTORY = 16
+HORIZON = 8
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 class ProbeDataset(Dataset):
-    """Loads QA records and pairs physical latent z_t with numerical/categorical targets."""
-    def __init__(self, jsonl_path: str, features_dir: str, split: str = "train"):
-        self.records = []
-        with open(jsonl_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    self.records.append(json.loads(line))
+    """Read only the 16 observed latents; validate target and frame provenance."""
 
-        self.split_dir = os.path.join(features_dir, split)
-        self.feature_cache = {}
-        for fname in os.listdir(self.split_dir):
-            if fname.endswith(".pt"):
-                data = torch.load(os.path.join(self.split_dir, fname), weights_only=True)
-                self.feature_cache[fname] = data["latent_z"]
+    def __init__(self, jsonl_path, features_dir, split):
+        self.jsonl_path = Path(jsonl_path)
+        self.split_dir = Path(features_dir) / split
+        if not self.jsonl_path.is_file():
+            raise FileNotFoundError(self.jsonl_path)
+        if not self.split_dir.is_dir():
+            raise FileNotFoundError(self.split_dir)
+        with self.jsonl_path.open(encoding="utf-8") as handle:
+            self.records = [json.loads(line) for line in handle if line.strip()]
+        if not self.records:
+            raise ValueError(f"No QA records in {self.jsonl_path}")
+
+        self.features = {}
+        self.provenance = {
+            "split": split,
+            "qa_path": str(self.jsonl_path.resolve()),
+            "qa_sha256": sha256(self.jsonl_path),
+            "features_dir": str(self.split_dir.resolve()),
+            "feature_provenance": None,
+            "feature_sha256": {},
+        }
+        seen_ids = set()
+        counts = Counter()
+        for record in self.records:
+            sample_id = record["sample_id"]
+            if sample_id in seen_ids or not sample_id.startswith(f"{split}_"):
+                raise ValueError(f"Duplicate or mismatched sample ID: {sample_id}")
+            seen_ids.add(sample_id)
+            task = record["task_name"]
+            target = record["target_structured"]
+            if task not in CLASS_NAMES or not isinstance(target, dict) or set(target) != {task}:
+                raise ValueError(f"Unsupported or mismatched target for {sample_id}")
+            if target[task] not in CLASS_NAMES[task]:
+                raise ValueError(f"Unknown target label for {sample_id}: {target[task]}")
+            if json.loads(record["target_text"]) != target:
+                raise ValueError(f"Target text differs from structured target for {sample_id}")
+            counts[task] += 1
+            self._load_feature(record["feature_file"])
+        if any(counts[task] == 0 for task in TASK_NAMES):
+            raise ValueError(f"Both QA tasks are required in {split}: {dict(counts)}")
+
+    def _load_feature(self, name):
+        if name in self.features:
+            return self.features[name]
+        if Path(name).name != name or not name.endswith(".pt"):
+            raise ValueError(f"Invalid feature filename: {name}")
+        path = self.split_dir / name
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        data = torch.load(path, map_location="cpu", weights_only=True)
+        latent = data["latent_z"]
+        frame_ids = data.get("source_frame_ids")
+        if (not isinstance(latent, torch.Tensor) or latent.ndim != 2
+                or latent.shape[1] != 384 or not isinstance(frame_ids, torch.Tensor)
+                or frame_ids.ndim != 1 or len(frame_ids) != len(latent)):
+            raise ValueError(f"Invalid feature shape or source frame IDs: {path}")
+        lineage = data.get("provenance")
+        if (not isinstance(lineage, dict)
+                or any(lineage.get(key) is None for key in (
+                    "encoder_sha256", "config_sha256", "preprocessing", "sampling_seed"
+                )) or not data.get("source_manifest_sha256")):
+            raise ValueError(f"Missing feature extraction lineage: {path}")
+        if self.provenance["feature_provenance"] is None:
+            self.provenance["feature_provenance"] = lineage
+        elif self.provenance["feature_provenance"] != lineage:
+            raise ValueError(f"Mixed feature extraction lineage in {self.split_dir}: {path}")
+        self.features[name] = (latent, frame_ids)
+        self.provenance["feature_sha256"][name] = sha256(path)
+        return self.features[name]
 
     def __len__(self):
         return len(self.records)
 
-    def __getitem__(self, idx):
-        rec = self.records[idx]
-        fname = rec["feature_file"]
-        w_start = rec["window_start"]
-        t_curr = min(w_start + 15, len(self.feature_cache[fname]) - 1)
-        z_t = self.feature_cache[fname][t_curr].float() # (384,)
-
-        t_struct = rec["target_structured"]
-
-        # 1. Posture class: standing=0, lunging=1, squatting=2
-        posture_map = {"standing": 0, "lunging": 1, "squatting": 2}
-        posture_cls = posture_map.get(t_struct.get("posture", "standing"), 0)
-
-        # 2. Lateral class: left=0, center=1, right=2
-        lateral_map = {"left": 0, "center": 1, "right": 2}
-        lateral_cls = lateral_map.get(t_struct.get("lateral_position", "center"), 1)
-
-        # 3. Radial direction: approaching=0, receding=1, stationary=2
-        dir_map = {"approaching": 0, "receding": 1, "stationary": 2}
-        radial_dir = dir_map.get(t_struct.get("radial_direction", "stationary"), 2)
-
-        # 4. Metric values (depth, velocity, wrist distance)
-        depth_m = float(t_struct.get("depth_m", 0.0))
-        velocity = float(t_struct.get("radial_velocity_mps", 0.0))
-        wrist_dist = float(t_struct.get("wrist_distance_m", 0.0))
-
+    def __getitem__(self, index):
+        record = self.records[index]
+        latent, frame_ids = self._load_feature(record["feature_file"])
+        start = record["window_start"]
+        sample_id = record["sample_id"]
+        end = start + HISTORY + HORIZON
+        if type(start) is not int or start < 0 or end > len(latent):
+            raise ValueError(f"Invalid 16+8 window for {sample_id}")
+        ids = frame_ids[start:end]
+        if not torch.all(ids[1:] - ids[:-1] == 1):
+            raise ValueError(f"Non-contiguous source frames for {sample_id}")
+        if ids.tolist() != record["source_frame_ids"]:
+            raise ValueError(f"QA frame IDs differ from features for {sample_id}")
+        if int(ids[HISTORY - 1]) != record["t_curr_frame"] or int(ids[-1]) != record["t_future_frame"]:
+            raise ValueError(f"QA time anchors differ from features for {sample_id}")
+        history = latent[start:start + HISTORY].float()
+        if not torch.isfinite(history).all():
+            raise ValueError(f"Non-finite observed state for {sample_id}")
+        task = record["task_name"]
+        label = CLASS_NAMES[task].index(record["target_structured"][task])
         return {
-            "z_t": z_t,
-            "posture_cls": torch.tensor(posture_cls, dtype=torch.long),
-            "lateral_cls": torch.tensor(lateral_cls, dtype=torch.long),
-            "radial_dir": torch.tensor(radial_dir, dtype=torch.long),
-            "depth_m": torch.tensor(depth_m, dtype=torch.float32),
-            "velocity": torch.tensor(velocity, dtype=torch.float32),
-            "wrist_dist": torch.tensor(wrist_dist, dtype=torch.float32),
-            "task_name": rec["task_name"]
+            "history": history,
+            "task_id": TASK_NAMES.index(task),
+            "label": label,
+            "sample_id": sample_id,
         }
 
 
 class MultiTaskPhysicalProbe(nn.Module):
-    """
-    Direct Multi-Task MLP Probe: z_t (384d) -> Tasks
-    """
-    def __init__(self, in_dim: int = 384, hidden_dim: int = 256):
-        super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(0.1)
-        )
-        self.posture_head = nn.Linear(hidden_dim, 3)     # standing, lunging, squatting
-        self.lateral_head = nn.Linear(hidden_dim, 3)     # left, center, right
-        self.direction_head = nn.Linear(hidden_dim, 3)   # approaching, receding, stationary
-        self.depth_head = nn.Linear(hidden_dim, 1)       # depth in meters
-        self.velocity_head = nn.Linear(hidden_dim, 1)    # radial velocity in m/s
-        self.wrist_head = nn.Linear(hidden_dim, 1)       # wrist distance in meters
+    """A linear z_t probe and a separate linear 16-state history probe."""
 
-    def forward(self, z: torch.Tensor):
-        h = self.shared(z)
+    def __init__(self, in_dim=384, history_frames=HISTORY):
+        super().__init__()
+        self.in_dim = in_dim
+        self.history_frames = history_frames
+        self.current_head = nn.Linear(in_dim, len(CLASS_NAMES[TASK_NAMES[0]]))
+        self.future_head = nn.Linear(in_dim * history_frames, len(CLASS_NAMES[TASK_NAMES[1]]))
+
+    def forward(self, history):
+        if history.ndim != 3 or history.shape[1:] != (self.history_frames, self.in_dim):
+            raise ValueError("Probe expects [batch, 16, 384] observed states")
         return {
-            "posture_logits": self.posture_head(h),
-            "lateral_logits": self.lateral_head(h),
-            "direction_logits": self.direction_head(h),
-            "depth_pred": self.depth_head(h).squeeze(-1),
-            "velocity_pred": self.velocity_head(h).squeeze(-1),
-            "wrist_pred": self.wrist_head(h).squeeze(-1)
+            TASK_NAMES[0]: self.current_head(history[:, -1]),
+            TASK_NAMES[1]: self.future_head(history.flatten(1)),
         }
 
 
+def batch_loss(logits, task_ids, labels):
+    """Supervise only the task asked by each QA record."""
+    total = 0
+    for task_id, task in enumerate(TASK_NAMES):
+        mask = task_ids == task_id
+        if mask.any():
+            total = total + F.cross_entropy(logits[task][mask], labels[mask], reduction="sum")
+    return total / len(labels)
+
+
+def score_model(model, loader, device):
+    model.eval()
+    truths = {task: [] for task in TASK_NAMES}
+    predictions = {task: [] for task in TASK_NAMES}
+    loss_sum = 0.0
+    sample_count = 0
+    with torch.inference_mode():
+        for batch in loader:
+            history = batch["history"].to(device)
+            task_ids = batch["task_id"].to(device)
+            labels = batch["label"].to(device)
+            logits = model(history)
+            loss_sum += batch_loss(logits, task_ids, labels).item() * len(labels)
+            sample_count += len(labels)
+            for task_id, task in enumerate(TASK_NAMES):
+                mask = task_ids == task_id
+                truths[task].extend(labels[mask].tolist())
+                predictions[task].extend(logits[task][mask].argmax(-1).tolist())
+
+    metrics = {"count": sample_count, "cross_entropy": loss_sum / sample_count, "tasks": {}}
+    for task in TASK_NAMES:
+        y_true, y_pred = truths[task], predictions[task]
+        count = len(y_true)
+        if count == 0:
+            raise ValueError(f"No evaluation examples for {task}")
+        per_class_f1 = {}
+        for class_id, label in enumerate(CLASS_NAMES[task]):
+            tp = sum(y == class_id and p == class_id for y, p in zip(y_true, y_pred))
+            fp = sum(y != class_id and p == class_id for y, p in zip(y_true, y_pred))
+            fn = sum(y == class_id and p != class_id for y, p in zip(y_true, y_pred))
+            per_class_f1[label] = 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0.0
+        metrics["tasks"][task] = {
+            "count": count,
+            "accuracy": sum(y == p for y, p in zip(y_true, y_pred)) / count,
+            "macro_f1": sum(per_class_f1.values()) / len(per_class_f1),
+            "class_counts": {label: y_true.count(i) for i, label in enumerate(CLASS_NAMES[task])},
+            "predicted_counts": {label: y_pred.count(i) for i, label in enumerate(CLASS_NAMES[task])},
+            "per_class_f1": per_class_f1,
+        }
+    metrics["mean_macro_f1"] = sum(metrics["tasks"][task]["macro_f1"] for task in TASK_NAMES) / len(TASK_NAMES)
+    return metrics
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--qa_dir", type=str, default="datasets/MM-Fi_grounded_qa")
-    parser.add_argument("--features_dir", type=str, default="datasets/MM-Fi_features_v2")
-    parser.add_argument("--epochs", type=int, default=15)
+    parser = argparse.ArgumentParser(description="Train B2 direct probes on validated Stage 4 QA")
+    parser.add_argument("--qa_dir", default="datasets/MM-Fi_grounded_qa_stage4_recovery")
+    parser.add_argument("--features_dir", default="datasets/MM-Fi_features_stage4_recovery")
+    parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--output_dir", type=str, default="eksperimen_model/checkpoints/probe")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--output_dir", default="eksperimen_model/checkpoints/probe_stage4_recovery")
+    parser.add_argument("--evaluate_test", action="store_true",
+                        help="Explicitly evaluate the frozen best probe on held-out test QA")
     args = parser.parse_args()
+    if args.epochs < 1 or args.batch_size < 1 or args.lr <= 0:
+        raise ValueError("epochs, batch_size, and lr must be positive")
 
-    os.makedirs(args.output_dir, exist_ok=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[*] Training Baseline B2 (Direct Probe) on {device}...")
-
-    train_ds = ProbeDataset(os.path.join(args.qa_dir, "mmfi_grounded_qa_train.jsonl"), args.features_dir, "train")
-    val_ds = ProbeDataset(os.path.join(args.qa_dir, "mmfi_grounded_qa_val.jsonl"), args.features_dir, "val")
-    test_ds = ProbeDataset(os.path.join(args.qa_dir, "mmfi_grounded_qa_test.jsonl"), args.features_dir, "test")
-
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    device = torch.device(args.device)
+    qa_dir = Path(args.qa_dir)
+    train_ds = ProbeDataset(qa_dir / "mmfi_grounded_qa_train.jsonl", args.features_dir, "train")
+    val_ds = ProbeDataset(qa_dir / "mmfi_grounded_qa_val.jsonl", args.features_dir, "val")
+    if train_ds.provenance["feature_provenance"] != val_ds.provenance["feature_provenance"]:
+        raise ValueError("Train and validation feature extraction lineage differs")
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size)
 
     model = MultiTaskPhysicalProbe().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / "best_probe_model.pth"
+    best_score = -1.0
+    best_loss = float("inf")
 
-    best_val_loss = float("inf")
     for epoch in range(1, args.epochs + 1):
         model.train()
-        total_loss = 0.0
-        for b in train_loader:
-            z = b["z_t"].to(device)
-            preds = model(z)
-
-            l_pos = F.cross_entropy(preds["posture_logits"], b["posture_cls"].to(device))
-            l_lat = F.cross_entropy(preds["lateral_logits"], b["lateral_cls"].to(device))
-            l_dir = F.cross_entropy(preds["direction_logits"], b["radial_dir"].to(device))
-
-            mask_depth = (b["depth_m"] > 0).to(device)
-            l_depth = F.l1_loss(preds["depth_pred"][mask_depth], b["depth_m"].to(device)[mask_depth]) if mask_depth.any() else 0.0
-
-            l_tot = l_pos + l_lat + l_dir + 2.0 * l_depth
-
-            optimizer.zero_grad()
-            l_tot.backward()
+        train_loss = 0.0
+        train_count = 0
+        for batch in train_loader:
+            history = batch["history"].to(device)
+            task_ids = batch["task_id"].to(device)
+            labels = batch["label"].to(device)
+            optimizer.zero_grad(set_to_none=True)
+            loss = batch_loss(model(history), task_ids, labels)
+            loss.backward()
             optimizer.step()
-            total_loss += l_tot.item()
+            train_loss += loss.item() * len(labels)
+            train_count += len(labels)
+        val_metrics = score_model(model, val_loader, device)
+        score = val_metrics["mean_macro_f1"]
+        val_loss = val_metrics["cross_entropy"]
+        if score > best_score or (score == best_score and val_loss < best_loss):
+            best_score, best_loss = score, val_loss
+            torch.save({
+                "model_state_dict": model.state_dict(),
+                "model_config": {"in_dim": 384, "history_frames": HISTORY},
+                "class_names": CLASS_NAMES,
+                "task_names": TASK_NAMES,
+                "epoch": epoch,
+                "selection_metric": "mean_macro_f1",
+                "validation_metrics": val_metrics,
+                "seed": args.seed,
+                "training": {"epochs": args.epochs, "batch_size": args.batch_size, "lr": args.lr},
+                "provenance": {"train": train_ds.provenance, "val": val_ds.provenance},
+            }, checkpoint_path)
+        print(f"Epoch {epoch:02d}: train CE={train_loss / train_count:.4f}, "
+              f"val CE={val_loss:.4f}, val mean macro-F1={score:.4f}")
 
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for b in val_loader:
-                z = b["z_t"].to(device)
-                preds = model(z)
-                l_pos = F.cross_entropy(preds["posture_logits"], b["posture_cls"].to(device))
-                l_lat = F.cross_entropy(preds["lateral_logits"], b["lateral_cls"].to(device))
-                l_dir = F.cross_entropy(preds["direction_logits"], b["radial_dir"].to(device))
-                mask_depth = (b["depth_m"] > 0).to(device)
-                l_depth = F.l1_loss(preds["depth_pred"][mask_depth], b["depth_m"].to(device)[mask_depth]) if mask_depth.any() else 0.0
-                val_loss += (l_pos + l_lat + l_dir + 2.0 * l_depth).item()
-
-        val_loss /= len(val_loader)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save(model.state_dict(), os.path.join(args.output_dir, "best_probe_model.pth"))
-
-        if epoch % 5 == 0 or epoch == args.epochs:
-            print(f"Epoch {epoch:02d}/{args.epochs:02d} | Train Loss: {total_loss/len(train_loader):.4f} | Val Loss: {val_loss:.4f}")
-
-    # Evaluate Test Set (Held-Out Benchmark)
-    model.load_state_dict(torch.load(os.path.join(args.output_dir, "best_probe_model.pth")))
-    model.eval()
-    correct_pos, correct_lat, correct_dir, total_samples = 0, 0, 0, 0
-    depth_errors = []
-
-    with torch.no_grad():
-        for b in test_loader:
-            z = b["z_t"].to(device)
-            preds = model(z)
-            p_pos = preds["posture_logits"].argmax(dim=-1).cpu()
-            p_lat = preds["lateral_logits"].argmax(dim=-1).cpu()
-            p_dir = preds["direction_logits"].argmax(dim=-1).cpu()
-
-            correct_pos += (p_pos == b["posture_cls"]).sum().item()
-            correct_lat += (p_lat == b["lateral_cls"]).sum().item()
-            correct_dir += (p_dir == b["radial_dir"]).sum().item()
-            total_samples += len(z)
-
-            mask = (b["depth_m"] > 0)
-            if mask.any():
-                err = torch.abs(preds["depth_pred"].cpu()[mask] - b["depth_m"][mask])
-                depth_errors.extend(err.tolist())
-
-    metrics = {
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    report = {
         "baseline": "B2_Direct_Probe",
-        "test_posture_accuracy": correct_pos / total_samples,
-        "test_lateral_accuracy": correct_lat / total_samples,
-        "test_direction_accuracy": correct_dir / total_samples,
-        "test_depth_mae_meters": float(np.mean(depth_errors)) if depth_errors else 0.0
+        "checkpoint": str(checkpoint_path.resolve()),
+        "checkpoint_sha256": sha256(checkpoint_path),
+        "selected_epoch": checkpoint["epoch"],
+        "validation": checkpoint["validation_metrics"],
+        "provenance": checkpoint["provenance"],
     }
-    print("\n" + "=" * 60)
-    print(" BASELINE B2 (DIRECT PROBE) TEST RESULTS ")
-    print("=" * 60)
-    for k, v in metrics.items():
-        print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
-
-    with open(os.path.join(args.output_dir, "probe_benchmark_metrics.json"), "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
-    print(f"[+] Saved metrics to {os.path.join(args.output_dir, 'probe_benchmark_metrics.json')}")
+    if args.evaluate_test:
+        test_ds = ProbeDataset(qa_dir / "mmfi_grounded_qa_test.jsonl", args.features_dir, "test")
+        if test_ds.provenance["feature_provenance"] != train_ds.provenance["feature_provenance"]:
+            raise ValueError("Test feature extraction lineage differs from the B2 training checkpoint")
+        report["test"] = score_model(model, DataLoader(test_ds, batch_size=args.batch_size), device)
+        report["provenance"]["test"] = test_ds.provenance
+    report_path = output_dir / "probe_benchmark_metrics.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Saved B2 checkpoint: {checkpoint_path}")
+    print(f"Saved B2 metrics: {report_path}")
 
 
 if __name__ == "__main__":

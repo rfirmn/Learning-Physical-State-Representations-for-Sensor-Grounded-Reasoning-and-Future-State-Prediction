@@ -2,6 +2,7 @@ import os
 import sys
 import copy
 import argparse
+import hashlib
 import yaml
 import json
 import time
@@ -32,8 +33,10 @@ def parse_args():
                         help="Override learning rate")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Computation device")
-    parser.add_argument("--output_dir", type=str, default="eksperimen_model/checkpoints/dynamics",
+    parser.add_argument("--output_dir", type=str, default="eksperimen_model/checkpoints/dynamics_stage4_recovery",
                         help="Directory to save dynamics checkpoints")
+    parser.add_argument("--features_dir", type=str, default=None,
+                        help="Override dataset features_output_dir without modifying the source config")
     parser.add_argument("--dry_run", action="store_true",
                         help="Dry run mode: 2 epochs only")
     return parser.parse_args()
@@ -88,6 +91,97 @@ def build_dynamics_model(dyn_cfg: Dict[str, Any], t_in: int = 16, t_out: int = 8
     return model
 
 
+def sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _json_digest(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def build_training_provenance(
+    train_ds: TemporalPhysicalDataset,
+    val_ds: TemporalPhysicalDataset,
+    features_dir: str,
+    config_path: str,
+    cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Fingerprint the exact Stage 3 inputs and reject mixed feature lineage."""
+    if not train_ds.file_paths or not train_ds.samples or not val_ds.file_paths or not val_ds.samples:
+        raise ValueError("Stage 3 requires nonempty train and validation feature windows")
+    expected = None
+    train_file_hashes = []
+    train_frames = 0
+    for split, dataset in (("train", train_ds), ("val", val_ds)):
+        if not dataset.preload_ram or len(dataset.file_paths) != len(dataset.loaded_data):
+            raise ValueError(f"{split} features were not fully preloaded")
+        for path, data in zip(dataset.file_paths, dataset.loaded_data):
+            if not isinstance(data, dict):
+                raise ValueError(f"Unreadable {split} feature file: {path}")
+            lineage = data.get("provenance")
+            if not isinstance(lineage, dict) or any(
+                lineage.get(key) is None for key in
+                ("encoder_sha256", "config_sha256", "preprocessing", "sampling_seed")
+            ):
+                raise ValueError(f"Missing extraction provenance in {path}")
+            if expected is None:
+                expected = lineage
+            elif lineage != expected:
+                raise ValueError(f"Mixed feature extraction lineage in {split}: {path}")
+            source_hash = data.get("source_manifest_sha256")
+            if not isinstance(source_hash, str) or len(source_hash) != 64:
+                raise ValueError(f"Missing source manifest hash in {path}")
+            latent = data.get("latent_z")
+            if not isinstance(latent, torch.Tensor) or latent.ndim != 2 or not torch.isfinite(latent).all():
+                raise ValueError(f"Invalid latent state in {path}")
+            if split == "train":
+                train_file_hashes.append((os.path.basename(path), sha256_file(path)))
+                train_frames += len(latent)
+
+    normalization_path = os.path.join(features_dir, "normalization_stats.pt")
+    normalization_hash = None
+    # Match extract_physical_features.compute_normalization_stats exactly.
+    source_digest = hashlib.sha256(
+        json.dumps(train_file_hashes, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if cfg["temporal"].get("normalize_z", False):
+        if not os.path.isfile(normalization_path):
+            raise FileNotFoundError(f"Stage 3 normalization stats missing: {normalization_path}")
+        stats = torch.load(normalization_path, map_location="cpu", weights_only=True)
+        if (
+            stats.get("feature_provenance") != expected
+            or stats.get("provenance") != expected
+            or stats.get("source_manifest_sha256") != source_digest
+            or stats.get("train_files_count") != len(train_file_hashes)
+            or stats.get("total_frames") != train_frames
+        ):
+            raise ValueError("Normalization stats do not match the exact training feature set")
+        mean_z, std_z = stats.get("mean_z"), stats.get("std_z")
+        if (
+            not isinstance(mean_z, torch.Tensor) or not isinstance(std_z, torch.Tensor)
+            or mean_z.shape != (cfg["dynamics_model"]["d_model"],)
+            or std_z.shape != mean_z.shape
+            or not torch.isfinite(mean_z).all() or not torch.isfinite(std_z).all()
+            or (std_z <= 0).any()
+        ):
+            raise ValueError("Invalid Stage 3 normalization statistics")
+        normalization_hash = sha256_file(normalization_path)
+
+    return {
+        "config_sha256": sha256_file(config_path),
+        "effective_config_sha256": _json_digest(cfg),
+        "normalization_stats_sha256": normalization_hash,
+        "feature_provenance": copy.deepcopy(expected),
+        "train_feature_manifest_sha256": source_digest,
+        "train_feature_file_count": len(train_file_hashes),
+    }
+
+
 def plot_dynamics_curves(history: Dict[str, list], output_path: str):
     """
     Plots training loss, validation loss, validation MSE, and cosine similarity.
@@ -139,6 +233,8 @@ def main():
 
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    if args.features_dir:
+        cfg["dataset"]["features_output_dir"] = args.features_dir
 
     # Resolve parameters
     ds_cfg = cfg["dataset"]
@@ -196,6 +292,7 @@ def main():
         add_noise=False,
         preload_ram=True
     )
+    checkpoint_provenance = build_training_provenance(train_ds, val_ds, features_dir, config_path, cfg)
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -303,7 +400,8 @@ def main():
                 "val_loss": val_loss_epoch,
                 "val_mse": val_mse_epoch,
                 "val_cos_sim": val_cos_epoch,
-                "config": cfg
+                "config": cfg,
+                **checkpoint_provenance,
             }, best_model_path)
         else:
             patience_counter += 1
@@ -317,7 +415,8 @@ def main():
                 "model_state_dict": model.state_dict(),
                 "ema_state_dict": ema.state_dict(),
                 "val_loss": val_loss_epoch,
-                "config": cfg
+                "config": cfg,
+                **checkpoint_provenance,
             }, latest_model_path)
 
             with open(history_json_path, "w", encoding="utf-8") as f:

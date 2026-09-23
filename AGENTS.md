@@ -188,6 +188,7 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
   ```
 
 ### 6. Menjalankan Penyelarasan Kognitif ke Frozen SLM (Tahap 4):
+- **Alur pemulihan terbaru:** lihat [docs/stage4_recovery_runbook.md](docs/stage4_recovery_runbook.md). Artefak QA dan fitur Batch 1 tidak memenuhi kontrak baru; buat ulang sebelum melatih projector.
 - **Sanity Check Pipeline SLM & Token Splicing:**
   ```powershell
   & ".venv\Scripts\python.exe" eksperimen_model/test_projector_pipeline.py
@@ -196,13 +197,15 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
   ```powershell
   & ".venv\Scripts\python.exe" eksperimen_model/train_probe.py --epochs 30 --batch_size 128
   ```
-- **Training Two-Layer MLP Projector Alignment (Qwen2.5-1.5B-Instruct Frozen):**
+- **Training Two-Layer MLP Projector Alignment (Qwen2.5-1.5B-Instruct Frozen), satu kondisi per run:**
   ```powershell
-  & ".venv\Scripts\python.exe" eksperimen_model/train_projector.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --epochs 3
+  & ".venv\Scripts\python.exe" eksperimen_model/train_projector.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --condition B3
+  & ".venv\Scripts\python.exe" eksperimen_model/train_projector.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --condition B3P
+  & ".venv\Scripts\python.exe" eksperimen_model/train_projector.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --condition B4
   ```
-- **Evaluasi Ilmiah Penalaran Fisik & Kontrol Shuffling (Held-Out Test Set):**
+- **Evaluasi Ilmiah Penalaran Fisik & Kontrol Shuffling (Held-Out Test Set), setelah ketiga checkpoint tersedia:**
   ```powershell
-  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_reasoning.py --projector_checkpoint eksperimen_model/checkpoints/projector/best_projector.pth --config eksperimen_model/configs/mmfi_projector_qwen.yaml --output_json docs/report_training/stage4_reasoning_benchmark.json
+  & ".venv\Scripts\python.exe" eksperimen_model/evaluate_reasoning.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --output_json docs/report_training/stage4_reasoning_benchmark.json
   ```
 
 ---
@@ -211,11 +214,6 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
 
 Jika Anda baru ditugaskan ke repositori ini, berikut adalah prioritas langkah selanjutnya:
 
-1. **Menuntaskan Training Tahap 4 (MLP Projector):**
-   - Lanjutkan eksekusi `train_projector.py` selama 2–3 epoch hingga konvergen penuh.
-   - Pastikan checkpoint terbaik tersimpan sebagai `eksperimen_model/checkpoints/projector/best_projector.pth`.
-2. **Menjalankan Evaluasi Benchmark & Shuffling Controls:**
-   - Jalankan `evaluate_reasoning.py` untuk mengukur akurasi seluruh baseline (B1–B5) dan uji kontrol shuffling sensor pada subjek test terisolasi (*held-out unseen subjects*).
-   - Validasi bahwa degradasi akurasi saat sinyal diacak (*cross-action shuffling*) melampaui $\ge 35\%$.
-3. **Penyusunan Laporan Ilmiah & Visualisasi:**
-   - Ekspor tabel metrik komprehensif ke `docs/report_training/stage4_reasoning_benchmark.json` dan lampirkan pada naskah Tugas Akhir.
+1. **Pulihkan artefak dan luluskan audit data Tahap 4:** ikuti [rencana pemulihan](docs/implementation_plan_stage4_recovery.md) dan runbook, lalu hasilkan ulang fitur dan QA yang sah.
+2. **Uji kelayakan target pada train/val:** latih B2 serta bandingkan Dynamics dengan persistensi sebelum membelanjakan GPU untuk projector.
+3. **Latih dan evaluasi B3, B3P, B4 secara terpisah:** gunakan panel test identik dan laporkan selisih B4–B3P beserta cakupan parse serta interval berkelompok. Pertahankan laporan Batch 1 sebagai artefak historis, bukan bukti konklusif.

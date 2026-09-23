@@ -14,6 +14,7 @@ import sys
 import os
 import torch
 import gc
+from types import SimpleNamespace
 
 if sys.platform == "win32":
     try:
@@ -24,6 +25,7 @@ if sys.platform == "win32":
 
 sys.path.insert(0, os.path.abspath("."))
 from eksperimen_model.models.projector import PhysicalToLLMProjector, PhysicalSLMWrapper
+from eksperimen_model.datasets.grounded_qa_dataset import GroundedQADataset
 
 
 def run_smoke_test(model_name: str = "Qwen/Qwen2.5-1.5B-Instruct", batch_size: int = 2):
@@ -44,7 +46,7 @@ def run_smoke_test(model_name: str = "Qwen/Qwen2.5-1.5B-Instruct", batch_size: i
         print(f"[*] Initial Allocated VRAM: {vram_start:.3f} GB")
 
     # 1. Initialize Multimodal Wrapper
-    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    dtype = (torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16) if device.type == "cuda" else torch.float32
     print(f"\n[1] Initializing PhysicalSLMWrapper with {model_name} (dtype={dtype})...")
     wrapper = PhysicalSLMWrapper(
         model_name_or_path=model_name,
@@ -70,28 +72,27 @@ def run_smoke_test(model_name: str = "Qwen/Qwen2.5-1.5B-Instruct", batch_size: i
     assert trainable_params < 2.5e6, "Trainable parameters should be ~1.97M, base SLM must be frozen!"
 
     # 2. Construct Mock Batch
-    print(f"\n[2] Constructing mock multimodal batch (Batch size = {batch_size}, N_phys = 13)...")
+    print(f"\n[2] Constructing mock multimodal batch (Batch size = {batch_size}, N_phys = 24)...")
     tokenizer = wrapper.tokenizer
 
-    prefix_text = "<|im_start|>system\nYou are a sensor-grounded reasoning assistant.<|im_end|>\n<|im_start|>user\n[Physical Observations]: "
-    suffix_text = "\nQuestion: What is the subject's posture and depth?<|im_end|>\n<|im_start|>assistant\nposture: standing, depth_m: 2.50.<|im_end|>"
+    question = ("At the current frame t, is the 3D distance between the wrists "
+                "narrower or wider than the 3D distance between the shoulders?")
+    prompt_context = SimpleNamespace(tokenizer=tokenizer, system_prompt=GroundedQADataset.SYSTEM_PROMPT)
+    prefix_ids, suffix_ids, prompt_len = GroundedQADataset.encode_prompt(
+        prompt_context, question, '{"current_wrist_separation":"wider"}'
+    )
+    prefix_input_ids = prefix_ids.unsqueeze(0).repeat(batch_size, 1).to(device)
+    prefix_attention_mask = torch.ones_like(prefix_input_ids)
+    suffix_input_ids = suffix_ids.unsqueeze(0).repeat(batch_size, 1).to(device)
+    suffix_attention_mask = torch.ones_like(suffix_input_ids)
 
-    enc_prefix = tokenizer([prefix_text] * batch_size, return_tensors="pt", padding=True)
-    enc_suffix = tokenizer([suffix_text] * batch_size, return_tensors="pt", padding=True)
-
-    prefix_input_ids = enc_prefix["input_ids"].to(device)
-    prefix_attention_mask = enc_prefix["attention_mask"].to(device)
-    suffix_input_ids = enc_suffix["input_ids"].to(device)
-    suffix_attention_mask = enc_suffix["attention_mask"].to(device)
-
-    # Physical tokens: (B, 13, 384)
-    physical_tokens = torch.randn((batch_size, 13, 384), dtype=dtype, device=device)
+    physical_tokens = torch.randn((batch_size, 24, 384), dtype=dtype, device=device)
 
     # Construct labels for loss computation (masking prompt tokens with -100)
-    L_tot = prefix_input_ids.shape[1] + 13 + suffix_input_ids.shape[1]
+    L_tot = prefix_input_ids.shape[1] + 24 + suffix_input_ids.shape[1]
     labels = torch.full((batch_size, L_tot), -100, dtype=torch.long, device=device)
-    # Supervision strictly on suffix assistant tokens
-    labels[:, -suffix_input_ids.shape[1]:] = suffix_input_ids
+    # Supervision strictly on assistant answer tokens.
+    labels[:, prefix_input_ids.shape[1] + 24 + prompt_len:] = suffix_input_ids[:, prompt_len:]
 
     # 3. Forward Pass
     print("\n[3] Executing Forward Pass...")
@@ -127,6 +128,24 @@ def run_smoke_test(model_name: str = "Qwen/Qwen2.5-1.5B-Instruct", batch_size: i
             slm_first_layer_weight = name
             break
     print(f"[+] Verified Base SLM parameters have ZERO gradients ({slm_first_layer_weight}.grad is None)")
+
+    # Check the generation path used by structured validation and benchmark parsing.
+    del loss, logits
+    wrapper.zero_grad(set_to_none=True)
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    _, prompt_ids, _ = GroundedQADataset.encode_prompt(prompt_context, question)
+    prompt_input_ids = prompt_ids.unsqueeze(0).repeat(batch_size, 1).to(device)
+    generated = wrapper.generate_response(
+        prefix_input_ids, prefix_attention_mask, physical_tokens,
+        prompt_input_ids, torch.ones_like(prompt_input_ids),
+        max_new_tokens=8, temperature=0.0,
+    )
+    assert len(generated) == batch_size and all(isinstance(value, str) for value in generated)
+    assert all("You are a sensor-grounded physical reasoning assistant" not in value and question not in value
+               for value in generated), "Generation returned prompt tokens instead of answer tokens"
+    print(f"[+] Greedy generation returned {len(generated)} answer-only strings: {generated[0]!r}")
 
     # 5. Measure Actual Peak VRAM
     if torch.cuda.is_available():

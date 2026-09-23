@@ -10,6 +10,8 @@ if sys.platform == "win32":
         pass
 
 import argparse
+import hashlib
+from pathlib import Path
 import yaml
 import json
 import time
@@ -35,6 +37,10 @@ def parse_args():
                         help="Path to configuration YAML")
     parser.add_argument("--batch_size", type=int, default=64,
                         help="Evaluation batch size")
+    parser.add_argument("--features_dir", type=str, default=None,
+                        help="Override feature root for a recovery run")
+    parser.add_argument("--split", choices=["val", "test"], default="test",
+                        help="Use val for recovery decisions; reserve test for frozen reporting")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Computation device")
     parser.add_argument("--output_json", type=str, default=None,
@@ -42,6 +48,14 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Output directory to save plots and reports")
     return parser.parse_args()
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def compute_procrustes_alignment(pred: np.ndarray, gt: np.ndarray) -> np.ndarray:
@@ -90,7 +104,7 @@ def plot_horizon_error_progression(horizon_metrics: Dict[str, list], output_path
 
     plt.figure(figsize=(10, 5))
     plt.plot(horizons, horizon_metrics["pred_mpjpe_mm"], marker='o', linewidth=2.2, color='#d62728', label='Dynamics Forecast MPJPE')
-    plt.plot(horizons, horizon_metrics["oracle_mpjpe_mm"], marker='s', linewidth=2.0, linestyle='--', color='#2ca02c', label='Oracle Av2 Baseline (Upper Bound)')
+    plt.plot(horizons, horizon_metrics["oracle_mpjpe_mm"], marker='s', linewidth=2.0, linestyle='--', color='#2ca02c', label='Av2 pose from observed future radar')
     plt.plot(horizons, horizon_metrics["root_rel_mpjpe_mm"], marker='^', linewidth=1.8, color='#1f77b4', label='Root-Relative MPJPE (Articulation)')
 
     plt.title("Future Horizon Error Progression (t+1 to t+8)", fontsize=13, fontweight='bold')
@@ -119,6 +133,8 @@ def evaluate_dynamics_benchmark(
 
     all_mse_per_horizon = []
     all_cos_per_horizon = []
+    persistence_mse_per_horizon = []
+    persistence_cos_per_horizon = []
     all_pred_mpjpe_per_horizon = []
     all_oracle_mpjpe_per_horizon = []
     all_root_rel_mpjpe_per_horizon = []
@@ -126,14 +142,14 @@ def evaluate_dynamics_benchmark(
 
     subject_records = {}
 
-    print(f"\n[Evaluating Benchmark] Iterating {len(dataset):,} held-out test sequences...")
+    print(f"\n[Evaluating Benchmark] Iterating {len(dataset):,} {dataset.split} sequences...")
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Evaluating Test Set"):
             hist_z = batch["hist_z"].to(device)                 # (B, T_in, 384)
             target_z = batch["target_z"].to(device)             # (B, T_out, 384)
             target_gt_skel = batch["target_gt_skel"].numpy()    # (B, T_out, 17, 3) (Meters)
-            target_pred_skel = batch["target_pred_skel"].numpy() # (B, T_out, 17, 3) (Oracle from Av2)
+            target_pred_skel = batch["target_pred_skel"].numpy() # Av2 pose from observed future radar
             subs = batch["sub"]
             acts = batch["act"]
 
@@ -143,6 +159,9 @@ def evaluate_dynamics_benchmark(
             # 2. Latent metrics (in standardized space)
             mse_h = torch.mean((pred_z - target_z) ** 2, dim=-1).cpu().numpy()  # (B, T_out)
             cos_h = torch.cosine_similarity(pred_z, target_z, dim=-1).cpu().numpy()  # (B, T_out)
+            persistence_z = hist_z[:, -1:, :].expand_as(target_z)
+            persistence_mse_h = torch.mean((persistence_z - target_z) ** 2, dim=-1).cpu().numpy()
+            persistence_cos_h = torch.cosine_similarity(persistence_z, target_z, dim=-1).cpu().numpy()
 
             # 3. Denormalize for physical Pose Head probe
             pred_z_denorm = dataset.denormalize_z(pred_z)
@@ -167,6 +186,8 @@ def evaluate_dynamics_benchmark(
 
             all_mse_per_horizon.append(mse_h)
             all_cos_per_horizon.append(cos_h)
+            persistence_mse_per_horizon.append(persistence_mse_h)
+            persistence_cos_per_horizon.append(persistence_cos_h)
             all_pred_mpjpe_per_horizon.append(pred_mpjpe_h)
             all_oracle_mpjpe_per_horizon.append(oracle_mpjpe_h)
             all_root_rel_mpjpe_per_horizon.append(root_rel_h)
@@ -183,6 +204,8 @@ def evaluate_dynamics_benchmark(
 
     all_mse = np.concatenate(all_mse_per_horizon, axis=0)         # (N, T_out)
     all_cos = np.concatenate(all_cos_per_horizon, axis=0)         # (N, T_out)
+    all_persistence_mse = np.concatenate(persistence_mse_per_horizon, axis=0)
+    all_persistence_cos = np.concatenate(persistence_cos_per_horizon, axis=0)
     all_pred = np.concatenate(all_pred_mpjpe_per_horizon, axis=0) # (N, T_out)
     all_oracle = np.concatenate(all_oracle_mpjpe_per_horizon, axis=0) # (N, T_out)
     all_root_rel = np.concatenate(all_root_rel_mpjpe_per_horizon, axis=0) # (N, T_out)
@@ -195,7 +218,9 @@ def evaluate_dynamics_benchmark(
         "root_rel_mpjpe_mm": [float(np.mean(all_root_rel[:, k])) for k in range(T_out)],
         "pelvis_trajectory_err_mm": [float(np.mean(all_pelvis[:, k])) for k in range(T_out)],
         "latent_mse": [float(np.mean(all_mse[:, k])) for k in range(T_out)],
-        "latent_cos_sim": [float(np.mean(all_cos[:, k])) for k in range(T_out)]
+        "latent_cos_sim": [float(np.mean(all_cos[:, k])) for k in range(T_out)],
+        "persistence_latent_mse": [float(np.mean(all_persistence_mse[:, k])) for k in range(T_out)],
+        "persistence_latent_cos_sim": [float(np.mean(all_persistence_cos[:, k])) for k in range(T_out)]
     }
 
     # Overall Summary
@@ -219,38 +244,43 @@ def evaluate_dynamics_benchmark(
         "overall_summary": {
             "pred_mpjpe_mm": overall_pred_mpjpe,
             "oracle_mpjpe_mm": overall_oracle_mpjpe,
-            "net_dynamics_degradation_mm": net_dynamics_degradation,
+            "pose_diagnostic_gap_mm": net_dynamics_degradation,
             "root_relative_mpjpe_mm": overall_root_rel_mpjpe,
             "pelvis_trajectory_err_mm": overall_pelvis_err,
             "latent_mse": overall_latent_mse,
             "latent_cos_sim": overall_latent_cos,
+            "persistence_latent_mse": float(np.mean(all_persistence_mse)),
+            "persistence_latent_cos_sim": float(np.mean(all_persistence_cos)),
+            "latent_mse_improvement_vs_persistence": float(np.mean(all_persistence_mse) - overall_latent_mse),
+            "pose_probe_caveat": "Global z is repeated into 16 pose-head slots; this is an off-distribution diagnostic, not a clean Dynamics MPJPE comparison.",
             "subject_level_pred_mpjpe": f"{sub_pred_mean:.2f} +- {sub_pred_std:.2f} mm"
         },
         "per_horizon": horizon_metrics,
         "per_subject": {sub: {
             "pred_mpjpe_mm": float(np.mean(v["pred_mpjpe"])),
             "oracle_mpjpe_mm": float(np.mean(v["oracle_mpjpe"])),
-            "net_degradation_mm": float(np.mean(v["pred_mpjpe"])) - float(np.mean(v["oracle_mpjpe"]))
+            "pose_diagnostic_gap_mm": float(np.mean(v["pred_mpjpe"])) - float(np.mean(v["oracle_mpjpe"]))
         } for sub, v in sorted(subject_records.items())}
     }
 
     # Print publication-grade summary table
     print("\n" + "=" * 82)
-    print("      SCIENTIFIC BENCHMARK RESULTS: HELD-OUT TEST SPLIT (8 UNSEEN SUBJECTS)")
+    print(f"      DYNAMICS DIAGNOSTICS: {dataset.split.upper()} SPLIT")
     print("=" * 82)
     print(f" Total Evaluated Sequences   : {len(all_pred):,}")
     print(f" Latent Forecast MSE         : {overall_latent_mse:.4f} (per latent dimension)")
+    print(f" Latent Persistence MSE      : {np.mean(all_persistence_mse):.4f} (same standardized latent space)")
     print(f" Latent Directional Cosine   : {overall_latent_cos:.4f}")
     print("-" * 82)
-    print(f" [1] Physical 3D Skeleton Probing (via Frozen Model Av2 Pose Head):")
+    print(f" [1] Off-distribution pose-head diagnostic (global z repeated to 16 slots):")
     print(f"     * Dynamics Forecast MPJPE     : {overall_pred_mpjpe:.2f} mm  [Subject Mean: {sub_pred_mean:.1f} +- {sub_pred_std:.1f} mm]")
-    print(f"     * Oracle Av2 Upper Bound      : {overall_oracle_mpjpe:.2f} mm")
-    print(f"     * Net Dynamics Degradation (Delta): {net_dynamics_degradation:+.2f} mm")
+    print(f"     * Av2 on observed future radar: {overall_oracle_mpjpe:.2f} mm")
+    print(f"     * Pose diagnostic gap         : {net_dynamics_degradation:+.2f} mm")
     print(f"     * Root-Relative MPJPE (Pose)  : {overall_root_rel_mpjpe:.2f} mm")
     print(f"     * Pelvis Global Drift Error   : {overall_pelvis_err:.2f} mm")
     print("-" * 82)
     print(" [2] Horizon Progression Breakdown (t+1 to t+8):")
-    print(f"     {'Horizon':<8} | {'Forecast MPJPE':<16} | {'Oracle MPJPE':<14} | {'Net Deg (Delta)':<14} | {'Cosine Sim':<10}")
+    print(f"     {'Horizon':<8} | {'Forecast MPJPE':<16} | {'Observed Av2':<14} | {'Pose gap':<14} | {'Cosine Sim':<10}")
     print("     " + "-" * 70)
     for k in range(T_out):
         p_m = horizon_metrics["pred_mpjpe_mm"][k]
@@ -261,7 +291,7 @@ def evaluate_dynamics_benchmark(
     print("-" * 82)
     print(" [3] Held-Out Subject Breakdown:")
     for sub, stats in results["per_subject"].items():
-        print(f"     * {sub}: Forecast = {stats['pred_mpjpe_mm']:.1f} mm | Oracle = {stats['oracle_mpjpe_mm']:.1f} mm (Delta = {stats['net_degradation_mm']:+.1f} mm)")
+        print(f"     * {sub}: Forecast = {stats['pred_mpjpe_mm']:.1f} mm | Observed future Av2 = {stats['oracle_mpjpe_mm']:.1f} mm (gap = {stats['pose_diagnostic_gap_mm']:+.1f} mm)")
     print("=" * 82)
 
     return results
@@ -311,12 +341,12 @@ def main():
     dyn_cfg = cfg.get("dynamics_model", {})
     t_in = temp_cfg.get("t_in", 16)
     t_out = temp_cfg.get("t_out", 8)
-    features_dir = ds_cfg["features_output_dir"]
+    features_dir = args.features_dir or ds_cfg["features_output_dir"]
 
     # 1. Load Test Dataset
     test_ds = TemporalPhysicalDataset(
         features_dir=features_dir,
-        split="test",
+        split=args.split,
         t_in=t_in,
         t_out=t_out,
         stride=temp_cfg.get("eval_stride", 4),
@@ -328,13 +358,32 @@ def main():
     # 2. Load Dynamics Model Checkpoint
     dynamics_model = build_dynamics_model(dyn_cfg, t_in=t_in, t_out=t_out).to(device)
 
-    if os.path.exists(args.checkpoint):
-        print(f"[Model] Loading dynamics checkpoint from {args.checkpoint}...")
-        ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-        state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
-        dynamics_model.load_state_dict(state_dict)
-    else:
-        print(f"[Warning] Checkpoint {args.checkpoint} not found! Testing with randomly initialized model.")
+    if not os.path.isfile(args.checkpoint):
+        raise FileNotFoundError(f"Required Dynamics checkpoint not found: {args.checkpoint}")
+    print(f"[Model] Loading dynamics checkpoint from {args.checkpoint}...")
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    trained_cfg = ckpt.get("config") if isinstance(ckpt, dict) else None
+    if not trained_cfg or trained_cfg.get("temporal") != temp_cfg or trained_cfg.get("dynamics_model") != dyn_cfg:
+        raise ValueError("Dynamics evaluation config differs from checkpoint training config")
+    trained_features = trained_cfg["dataset"]["features_output_dir"]
+    if Path(trained_features).resolve() != Path(features_dir).resolve():
+        raise ValueError("Dynamics checkpoint was trained on a different feature directory")
+    expected_stats_hash = ckpt.get("normalization_stats_sha256")
+    if temp_cfg.get("normalize_z", True):
+        stats_path = os.path.join(features_dir, "normalization_stats.pt")
+        if not expected_stats_hash or sha256_file(stats_path) != expected_stats_hash:
+            raise ValueError("Dynamics normalization stats lack matching checkpoint lineage")
+        stats = torch.load(stats_path, map_location="cpu", weights_only=True)
+        if (stats.get("feature_provenance") != ckpt.get("feature_provenance")
+                or stats.get("source_manifest_sha256") != ckpt.get("train_feature_manifest_sha256")):
+            raise ValueError("Dynamics feature manifest differs from training checkpoint")
+    if not ckpt.get("feature_provenance"):
+        raise ValueError("Dynamics checkpoint lacks feature lineage; retrain or audit it before evaluation")
+    for data in test_ds.loaded_data:
+        if data is not None and data.get("provenance") != ckpt["feature_provenance"]:
+            raise ValueError("Evaluation features have different encoder/preprocessing lineage")
+    state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
+    dynamics_model.load_state_dict(state_dict)
 
     # 3. Load Frozen Model Av2 for Pose Head Probing
     av2_path = ds_cfg.get("encoder_checkpoint", "eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth")
@@ -353,13 +402,12 @@ def main():
         drop_path_rate=0.0
     ).to(device)
 
-    if os.path.exists(av2_path):
-        ckpt_av2 = torch.load(av2_path, map_location=device, weights_only=False)
-        st_av2 = ckpt_av2["model_state_dict"] if "model_state_dict" in ckpt_av2 else ckpt_av2
-        pose_estimator.load_state_dict(st_av2)
-        print(f"[Model] Loaded frozen Model Av2 weights for Oracle Probing from: {av2_path}")
-    else:
-        print(f"[Warning] Model Av2 checkpoint not found: {av2_path}")
+    if not os.path.isfile(av2_path):
+        raise FileNotFoundError(f"Required Av2 checkpoint not found: {av2_path}")
+    ckpt_av2 = torch.load(av2_path, map_location=device, weights_only=False)
+    st_av2 = ckpt_av2["model_state_dict"] if "model_state_dict" in ckpt_av2 else ckpt_av2
+    pose_estimator.load_state_dict(st_av2)
+    print(f"[Model] Loaded frozen Model Av2 weights for pose diagnostic from: {av2_path}")
 
     # 4. Run Evaluation
     results = evaluate_dynamics_benchmark(dynamics_model, pose_estimator, test_ds, test_loader, device)

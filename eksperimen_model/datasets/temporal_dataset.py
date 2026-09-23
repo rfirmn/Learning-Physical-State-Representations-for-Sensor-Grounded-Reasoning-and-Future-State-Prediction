@@ -50,7 +50,7 @@ class TemporalPhysicalDataset(Dataset):
                 self.mean_z = stats["mean_z"]
                 self.std_z = stats["std_z"]
             else:
-                print(f"[TemporalDataset] Warning: {stats_path} not found. Proceeding without Z normalization.")
+                raise FileNotFoundError(f"Requested Stage 3 latent normalization stats not found: {stats_path}")
 
         # Discover all .pt files in the split directory
         self.file_paths = sorted(glob.glob(os.path.join(self.split_dir, "*.pt")))
@@ -58,6 +58,8 @@ class TemporalPhysicalDataset(Dataset):
         self.samples: List[Tuple[int, int]] = [] # (file_idx, start_frame_offset)
 
         self._build_index()
+        if not self.file_paths or not self.samples:
+            raise ValueError(f"No valid temporal windows in {self.split_dir}")
 
     def denormalize_z(self, z_tensor: torch.Tensor) -> torch.Tensor:
         """
@@ -77,8 +79,7 @@ class TemporalPhysicalDataset(Dataset):
             try:
                 data = torch.load(fpath, weights_only=True)
             except Exception as e:
-                print(f"  [Warning] Failed loading {fpath}: {e}")
-                continue
+                raise ValueError(f"Could not load temporal feature file {fpath}") from e
 
             num_frames = data["latent_z"].shape[0]
             # Use original MM-Fi source frame numbers to detect any physical missing frames

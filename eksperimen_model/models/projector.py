@@ -119,10 +119,10 @@ class PhysicalSLMWrapper(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Assembles inputs_embeds by inserting projected physical tokens between prefix and suffix:
-          [Prefix Embeddings] + [Projected Physical Tokens (13)] + [Suffix Embeddings]
+          [Prefix Embeddings] + [Projected Physical Tokens] + [Suffix Embeddings]
         
         prefix_input_ids: (B, L_pre)
-        physical_tokens: (B, 13, 384)
+        physical_tokens: (B, N_phys, 384)
         suffix_input_ids: (B, L_suf)
         labels: Optional (B, Total_L) - Target loss computation strictly on assistant response
         """
@@ -135,10 +135,10 @@ class PhysicalSLMWrapper(nn.Module):
         # 2. Project physical tokens
         # Ensure physical tokens match projector dtype and device
         phys_t = physical_tokens.to(dtype=self.projector.net[0].weight.dtype, device=prefix_embeds.device)
-        phys_embeds = self.projector(phys_t) # (B, 13, d_model)
+        phys_embeds = self.projector(phys_t)
 
         # 3. Concatenate embeddings along sequence dimension
-        inputs_embeds = torch.cat([prefix_embeds, phys_embeds, suffix_embeds], dim=1) # (B, L_tot, d_model)
+        inputs_embeds = torch.cat([prefix_embeds, phys_embeds, suffix_embeds], dim=1)
 
         # 4. Construct unified attention mask
         B, N_phys, _ = phys_embeds.shape
@@ -159,7 +159,7 @@ class PhysicalSLMWrapper(nn.Module):
         self,
         prefix_input_ids: torch.Tensor,
         prefix_attention_mask: torch.Tensor,
-        physical_tokens: torch.Tensor,
+        physical_tokens: Optional[torch.Tensor],
         suffix_input_ids: torch.Tensor,
         suffix_attention_mask: torch.Tensor,
         max_new_tokens: int = 128,
@@ -175,24 +175,28 @@ class PhysicalSLMWrapper(nn.Module):
             prefix_embeds = embed_fn(prefix_input_ids)
             suffix_embeds = embed_fn(suffix_input_ids)
 
-            phys_t = physical_tokens.to(dtype=self.projector.net[0].weight.dtype, device=prefix_embeds.device)
-            phys_embeds = self.projector(phys_t)
+            if physical_tokens is None:
+                inputs_embeds = torch.cat([prefix_embeds, suffix_embeds], dim=1)
+                attention_mask = torch.cat([prefix_attention_mask, suffix_attention_mask], dim=1)
+            else:
+                phys_t = physical_tokens.to(dtype=self.projector.net[0].weight.dtype, device=prefix_embeds.device)
+                phys_embeds = self.projector(phys_t)
+                inputs_embeds = torch.cat([prefix_embeds, phys_embeds, suffix_embeds], dim=1)
+                B, N_phys, _ = phys_embeds.shape
+                phys_attention_mask = torch.ones((B, N_phys), dtype=prefix_attention_mask.dtype, device=prefix_attention_mask.device)
+                attention_mask = torch.cat([prefix_attention_mask, phys_attention_mask, suffix_attention_mask], dim=1)
 
-            inputs_embeds = torch.cat([prefix_embeds, phys_embeds, suffix_embeds], dim=1)
-            B, N_phys, _ = phys_embeds.shape
-            phys_attention_mask = torch.ones((B, N_phys), dtype=prefix_attention_mask.dtype, device=prefix_attention_mask.device)
-            attention_mask = torch.cat([prefix_attention_mask, phys_attention_mask, suffix_attention_mask], dim=1)
-
-            generated_ids = self.llm.generate(
+            generation_args = dict(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
                 do_sample=(temperature > 0.0),
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id
             )
+            if temperature > 0.0:
+                generation_args.update(temperature=temperature, top_p=top_p)
+            generated_ids = self.llm.generate(**generation_args)
 
             decoded = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             return decoded
