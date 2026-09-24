@@ -13,7 +13,7 @@ if (Test-Path $Output) { throw "Output Dynamics sudah ada: $Output" }
     --config "eksperimen_model\configs\mmfi_dynamics_best_tuned.yaml" `
     --features_dir $Features `
     --epochs 150 `
-    --batch_size 64 `
+    --batch_size 128 `
     --output_dir $Output
 if ($LASTEXITCODE -ne 0) { throw "Training Dynamics gagal dengan exit code $LASTEXITCODE" }
 Write-Host "Training Dynamics selesai: $Output" -ForegroundColor Green
