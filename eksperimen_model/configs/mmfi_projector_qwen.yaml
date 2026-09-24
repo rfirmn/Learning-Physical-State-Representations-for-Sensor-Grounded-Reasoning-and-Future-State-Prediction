@@ -31,8 +31,8 @@ dataset:
 # Training Hyperparameters (Optimized for RTX 3060 12GB)
 training:
   epochs: 5
-  micro_batch_size: 2
-  gradient_accumulation_steps: 8  # Effective batch size = 16
+  micro_batch_size: 4
+  gradient_accumulation_steps: 4  # Effective batch size = 16
   learning_rate: 1.0e-4
   min_learning_rate: 1.0e-6
   weight_decay: 0.01
