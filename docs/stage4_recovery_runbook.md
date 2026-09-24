@@ -1,85 +1,239 @@
-# Runbook pemulihan Tahap 4
+# Runbook Pemulihan Tahap 4 — PowerShell Windows
 
-Jalankan dari root repositori di **PowerShell Windows** pada mesin eksperimen memakai `.venv`. Checkout ini belum memuat fitur, GT raw, checkpoint Av2/Dynamics, atau hasil QA penuh; tidak ada angka empiris yang dapat diklaim di sini. Simpan seluruh hasil Batch 1. Perintah berikut memakai direktori fitur dan QA pemulihan, serta folder run baru untuk checkpoint/laporan.
+Jalankan dari PowerShell pada mesin eksperimen Windows.
 
-## 0. Prasyarat, sanity check, dan jalur keluaran
+## Satu script untuk setiap tahap
 
-```powershell
-$py = ".venv\Scripts\python.exe"
-$run = Join-Path "docs\report_training" ("stage4_recovery_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
-$featuresDir = "datasets/MM-Fi_features_stage4_recovery"
-$qaDir = "datasets/MM-Fi_grounded_qa_stage4_recovery"
-$dynamicsDir = Join-Path $run "dynamics"
-$dynamicsCheckpoint = Join-Path $dynamicsDir "best_dynamics_model.pth"
-$dynamicsConfig = Join-Path $run "mmfi_dynamics_stage4_recovery.yaml"
-$projectorConfig = Join-Path $run "mmfi_projector_stage4_recovery.yaml"
-if ((Test-Path $featuresDir) -or (Test-Path $qaDir)) { throw "Arsipkan direktori recovery lama sebelum run baru." }
-New-Item -ItemType Directory -Force -Path $run | Out-Null
-$required = @("datasets\MM-Fi Dataset\filtered_mmwave", "datasets\MM-Fi Dataset\MMFi_action_segments.csv", "eksperimen_model\checkpoints\pose_estimation_v2\model_av2.pth")
-foreach ($path in $required) { if (-not (Test-Path $path)) { throw "Artefak wajib tidak ada: $path" } }
-& $py eksperimen_model/test_pipeline.py
-```
-
-**Gerbang:** semua artefak wajib tersedia dan sanity check lulus sebelum training panjang. Simpan checksum Av2, versi kode, seed, dan config di `$run`.
-
-## 1. Ekstraksi fitur ke direktori pemulihan
+Setiap tahap sudah memiliki script mandiri. Jalankan dari root repositori dan
+tempel satu perintah sesuai tahap yang ingin dijalankan:
 
 ```powershell
-& $py eksperimen_model/datasets/extract_physical_features.py --config eksperimen_model/configs/mmfi_dynamics_v3.yaml --output_dir $featuresDir --seed 42
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_sanity_check.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_extract_features.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_generate_qa.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_train_dynamics.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_evaluate_dynamics.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_train_probe.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_sanity_projector.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_train_projector.ps1 -Condition B3
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_train_projector.ps1 -Condition B3P
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_train_projector.ps1 -Condition B4
+powershell -ExecutionPolicy Bypass -File .\scripts\stage4_evaluate.ps1
 ```
 
-Periksa `$featuresDir/extraction_rejections.json`, `normalization_stats.pt`, dan jumlah berkas train/val/test. Ekstraktor menolak radar/GT tidak sah, menyimpan ID frame asli serta provenance, dan membangun statistik hanya dari berkas train yang tervalidasi. `--dry_run` dan `--max_actions` tidak membangun statistik penuh. Jika run harus diulang, arsipkan direktori recovery lebih dulu; jangan menimpa cache atau laporan Batch 1.
+Jalankan sesuai urutan. Setiap script berhenti saat menemukan error dan tidak
+menimpa output recovery yang sudah ada.
 
-**Gerbang:** penyebab seluruh rekaman ditolak diaudit. Pastikan fitur memiliki hash encoder/config/sumber dan statistik memiliki `feature_provenance` serta `source_manifest_sha256` yang sesuai. Tidak ada cache lawas tercampur.
+> Batch 1 tidak diubah. Semua fitur dan QA pemulihan memakai direktori baru.
+> Checkpoint Dynamics lama tidak memiliki lineage yang cukup untuk B4, sehingga
+> Dynamics dilatih ulang menggunakan fitur pemulihan.
 
-## 2. Manifest QA dan pembekuan target
+## 1. Persiapan dan sanity check
+
+Pastikan terminal PowerShell sedang berada di root repositori. Salin Blok 1,
+tekan Enter, lalu salin Blok 2.
+
+### Blok 1 — persiapan dan pemeriksaan artefak
 
 ```powershell
-& $py eksperimen_model/datasets/generate_grounded_qa.py --features_dir $featuresDir --output_dir $qaDir --segments_csv "datasets/MM-Fi Dataset/MMFi_action_segments.csv" --raw_dataset_dir "datasets/MM-Fi Dataset/filtered_mmwave" --train_stride 4 --val_stride 8 --test_stride 8 --seed 42
-Get-FileHash (Join-Path $qaDir "mmfi_grounded_qa_test.jsonl") -Algorithm SHA256
+$Py = ".venv\Scripts\python.exe"
+$Run = Join-Path "docs\report_training" ("stage4_recovery_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
+$Features = "datasets\MM-Fi_features_stage4_recovery"
+$QA = "datasets\MM-Fi_grounded_qa_stage4_recovery"
+$DynamicsDir = "eksperimen_model\checkpoints\dynamics_stage4_recovery"
+$DynamicsCheckpoint = Join-Path $DynamicsDir "best_dynamics_model.pth"
+$ProbeDir = Join-Path $Run "probe"
+$ProjectorDir = Join-Path $Run "projector"
+
+if (-not (Test-Path $Py)) { throw "Python .venv tidak ditemukan. Jalankan dari root repositori." }
+if ((Test-Path $Features) -or (Test-Path $QA)) { throw "Direktori recovery lama sudah ada. Arsipkan atau gunakan nama direktori lain sebelum memulai." }
+if (Test-Path $DynamicsDir) { throw "Checkpoint Dynamics recovery lama sudah ada. Arsipkan sebelum memulai." }
+
+$Required = @(
+    "datasets\MM-Fi Dataset\filtered_mmwave",
+    "datasets\MM-Fi Dataset\MMFi_action_segments.csv",
+    "eksperimen_model\checkpoints\pose_estimation_v2\model_av2.pth"
+)
+foreach ($Path in $Required) {
+    if (-not (Test-Path $Path)) { throw "Artefak wajib tidak ditemukan: $Path" }
+}
+
+New-Item -ItemType Directory -Force -Path $Run | Out-Null
 ```
 
-Periksa `$qaDir/qa_dataset_summary.json` dan tiga `*_rejections.jsonl`. Target saat ini `current_wrist_separation` memiliki kelas `narrower/wider`; target perubahan sampai t+8 `future_wrist_separation_change` memiliki kelas `closing/stable/opening`. Keduanya memakai jarak 3D relatif terhadap lebar bahu saat t, tanpa besaran absolut meter. Jendela lintas repetisi ditandai; rentang CSV terbalik dikarantina.
-
-**Gerbang:** tinjau train/val per kelas, subjek, aksi, dan dekat ambang; periksa 16+8 frame berurutan, GT cocok dengan raw, dan subjek antarsplit terpisah. Tentukan ambang efek minimum, cakupan parse minimum, target primer, dan checksum manifest test **sebelum** menilai test. Jika label masa depan nyaris seluruhnya `stable`, hentikan klaim manfaat forecast.
-
-## 3. Kecocokan Dynamics dengan fitur recovery
-
-Checkpoint Dynamics lama tidak mencatat hash fitur maupun statistik normalisasi Tahap 3. Kesamaan path config saja tidak membuktikan bahwa fitur recovery cocok dengan input latihnya. Kode B4 saat ini menolak checkpoint tanpa lineage; jalur yang sudah diimplementasikan adalah **melatih ulang Dynamics** pada fitur recovery, tanpa menimpa checkpoint lama. Pemakaian checkpoint lama akan memerlukan prosedur audit dan migrasi lineage terpisah yang belum tersedia.
+### Blok 2 — jalankan sanity check
 
 ```powershell
-& $py -c 'import sys,yaml; from pathlib import Path; src,dst,features=sys.argv[1:]; cfg=yaml.safe_load(Path(src).read_text(encoding="utf-8")); cfg["dataset"]["features_output_dir"]=features; Path(dst).write_text(yaml.safe_dump(cfg,sort_keys=False),encoding="utf-8")' "eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml" $dynamicsConfig $featuresDir
-& $py eksperimen_model/train_dynamics.py --config $dynamicsConfig --epochs 150 --batch_size 64 --output_dir $dynamicsDir
-& $py eksperimen_model/evaluate_dynamics.py --config $dynamicsConfig --checkpoint $dynamicsCheckpoint --split val --batch_size 64 --output_dir (Join-Path $run "dynamics_val") --output_json (Join-Path $run "dynamics_val/dynamics_benchmark_results.json")
+& $Py eksperimen_model\test_pipeline.py
+if ($LASTEXITCODE -ne 0) {
+    throw "Sanity check gagal dengan exit code $LASTEXITCODE. Hentikan proses dan perbaiki error sebelum training."
+}
+Write-Host "Sanity check lulus. Anda dapat melanjutkan ke ekstraksi fitur." -ForegroundColor Green
 ```
 
-**Gerbang:** checkpoint baru ada, input memakai statistik train recovery, dan prediksi latent val dibanding persistensi pada horizon yang sama. Jika Dynamics gagal mengungguli persistensi untuk target relevan, perbaiki Tahap 3 sebelum B4. Simpan test Dynamics sampai keputusan target dan ambang dibekukan.
+Blok 2 menggunakan variabel yang dibuat oleh Blok 1. Jangan lanjut ke tahap
+berikutnya bila blok ini gagal.
 
-## 4. Probe B2 dan config Stage 4 yang cocok
+## 2. Ekstraksi fitur recovery
 
 ```powershell
-& $py eksperimen_model/train_probe.py --qa_dir $qaDir --features_dir $featuresDir --epochs 30 --batch_size 128 --seed 42 --output_dir (Join-Path $run "probe")
-& $py -c 'import sys,yaml; from pathlib import Path; src,dst,features,qa,dynamics,dynamics_cfg=sys.argv[1:]; cfg=yaml.safe_load(Path(src).read_text(encoding="utf-8")); ds=cfg["dataset"]; ds.update(qa_dir=qa,features_dir=features,dynamics_checkpoint=dynamics,dynamics_config=dynamics_cfg,train_file=qa+"/mmfi_grounded_qa_train.jsonl",val_file=qa+"/mmfi_grounded_qa_val.jsonl",test_file=qa+"/mmfi_grounded_qa_test.jsonl"); Path(dst).write_text(yaml.safe_dump(cfg,sort_keys=False),encoding="utf-8")' "eksperimen_model/configs/mmfi_projector_qwen.yaml" $projectorConfig $featuresDir $qaDir $dynamicsCheckpoint $dynamicsConfig
-& $py eksperimen_model/test_projector_pipeline.py
+& $Py eksperimen_model\datasets\extract_physical_features.py `
+    --config eksperimen_model\configs\mmfi_dynamics_v3.yaml `
+    --output_dir $Features `
+    --seed 42
 ```
 
-Periksa `$run/probe/best_probe_model.pth` dan `probe_benchmark_metrics.json` yang pada tahap ini hanya berisi metrik train/val. **Gerbang:** pada val, target terpilih terbaca dari z/riwayat dan melampaui baseline kelas mayoritas. Test B2 baru dihitung oleh evaluator pada langkah 6, setelah target dan ambang dibekukan. Pastikan salinan config projector menunjuk fitur, QA, statistik, dan Dynamics recovery sebelum training.
-
-## 5. Projector B3, B3P, B4
+Periksa hasilnya:
 
 ```powershell
-& $py eksperimen_model/train_projector.py --config $projectorConfig --condition B3 --output_dir (Join-Path $run "projector/b3")
-& $py eksperimen_model/train_projector.py --config $projectorConfig --condition B3P --output_dir (Join-Path $run "projector/b3p")
-& $py eksperimen_model/train_projector.py --config $projectorConfig --condition B4 --output_dir (Join-Path $run "projector/b4")
+Get-ChildItem $Features -Recurse -Filter *.pt | Measure-Object
+Get-Content (Join-Path $Features "extraction_rejections.json") | Select-Object -First 20
+if (-not (Test-Path (Join-Path $Features "normalization_stats.pt"))) {
+    throw "normalization_stats.pt tidak dibuat. Jangan lanjut."
+}
 ```
 
-Ketiganya memakai 16 latent riwayat identik. B3P menambah delapan salinan state terakhir; B4 menambah delapan forecast dari Dynamics recovery beku. SLM, encoder, dan Dynamics tetap beku. **Gerbang:** ketiga `best_projector.pth` serta riwayat training ada, provenance cocok, dan checkpoint dipilih dengan metrik jawaban JSON pada val serta cakupan parse memadai. B5, bila diperlukan, harus memakai projector terlatih terpisah.
+Jangan lanjut bila `normalization_stats.pt` tidak ada, atau alasan penolakan
+rekaman belum ditinjau.
 
-## 6. Evaluasi test beku dan laporan
+## 3. Bangun manifest QA yang tervalidasi
 
 ```powershell
-& $py eksperimen_model/evaluate_dynamics.py --config $dynamicsConfig --checkpoint $dynamicsCheckpoint --split test --batch_size 64 --output_dir (Join-Path $run "dynamics_test") --output_json (Join-Path $run "dynamics_test/dynamics_benchmark_results.json")
-& $py eksperimen_model/evaluate_reasoning.py --config $projectorConfig --dynamics_checkpoint $dynamicsCheckpoint --dynamics_config $dynamicsConfig --checkpoint_b2 (Join-Path $run "probe/best_probe_model.pth") --checkpoint_b3 (Join-Path $run "projector/b3/best_projector.pth") --checkpoint_b3p (Join-Path $run "projector/b3p/best_projector.pth") --checkpoint_b4 (Join-Path $run "projector/b4/best_projector.pth") --output_json (Join-Path $run "stage4_reasoning_benchmark.json") --output_report (Join-Path $run "stage4_reasoning_benchmark.md")
+& $Py eksperimen_model\datasets\generate_grounded_qa.py `
+    --features_dir $Features `
+    --output_dir $QA `
+    --segments_csv "datasets\MM-Fi Dataset\MMFi_action_segments.csv" `
+    --raw_dataset_dir "datasets\MM-Fi Dataset\filtered_mmwave" `
+    --train_stride 4 `
+    --val_stride 8 `
+    --test_stride 8 `
+    --seed 42
+
+Get-Content (Join-Path $QA "qa_dataset_summary.json")
+Get-FileHash (Join-Path $QA "mmfi_grounded_qa_test.jsonl") -Algorithm SHA256
 ```
 
-Simpan respons mentah, status parse, sample ID, target/prediksi, checksum manifest, config, dan metrik dalam `$run`. Laporkan jumlah total/valid/terparse, distribusi kelas, accuracy dan macro-F1 per target/subjek, serta strata dalam/lintas repetisi. Perbandingan primer: **macro-F1 target masa depan B4 − B3P** pada sampel identik dengan interval berkelompok pada rekaman atau subjek. Shuffling adalah analisis sekunder. Angka Batch 1 tetap berstatus tidak konklusif untuk kontribusi Dynamics sampai pemulihan ini selesai dan metriknya dihitung.
+Sebelum membuka hasil test, tinjau distribusi kelas train/val pada
+`qa_dataset_summary.json`. Target yang digunakan adalah:
+
+- `current_wrist_separation`: `narrower` atau `wider`.
+- `future_wrist_separation_change`: `closing`, `stable`, atau `opening`.
+
+Jika target masa depan hampir selalu `stable`, hentikan eksperimen B4 dan
+revisi target pada train/val.
+
+## 4. Latih dan validasi Dynamics pada fitur recovery
+
+```powershell
+& $Py eksperimen_model\train_dynamics.py `
+    --config eksperimen_model\configs\mmfi_dynamics_best_tuned.yaml `
+    --features_dir $Features `
+    --epochs 150 `
+    --batch_size 64 `
+    --output_dir $DynamicsDir
+
+& $Py eksperimen_model\evaluate_dynamics.py `
+    --config eksperimen_model\configs\mmfi_dynamics_best_tuned.yaml `
+    --features_dir $Features `
+    --checkpoint $DynamicsCheckpoint `
+    --split val `
+    --batch_size 64 `
+    --output_dir (Join-Path $Run "dynamics_val")
+```
+
+Pada validasi, bandingkan MSE latent Dynamics dengan persistensi. Jika
+Dynamics tidak mengungguli persistensi pada target yang relevan, berhenti di
+sini dan perbaiki Tahap 3.
+
+## 5. Jalankan probe B2 dan sanity check projector
+
+Probe hanya menyentuh train/val. Test tetap tertutup sampai langkah terakhir.
+
+```powershell
+& $Py eksperimen_model\train_probe.py `
+    --qa_dir $QA `
+    --features_dir $Features `
+    --epochs 30 `
+    --batch_size 128 `
+    --seed 42 `
+    --output_dir $ProbeDir
+
+& $Py eksperimen_model\test_projector_pipeline.py
+```
+
+Lanjutkan bila probe pada validasi mengungguli baseline kelas mayoritas dan
+sanity check projector lulus.
+
+## 6. Latih B3, B3P, dan B4
+
+Ketiga perintah menggunakan QA dan fitur recovery dari konfigurasi
+`mmfi_projector_qwen.yaml`. Jangan mengubah epoch, batch, learning rate, atau
+seed antar kondisi.
+
+```powershell
+& $Py eksperimen_model\train_projector.py `
+    --config eksperimen_model\configs\mmfi_projector_qwen.yaml `
+    --condition B3 `
+    --output_dir (Join-Path $ProjectorDir "b3")
+
+& $Py eksperimen_model\train_projector.py `
+    --config eksperimen_model\configs\mmfi_projector_qwen.yaml `
+    --condition B3P `
+    --output_dir (Join-Path $ProjectorDir "b3p")
+
+& $Py eksperimen_model\train_projector.py `
+    --config eksperimen_model\configs\mmfi_projector_qwen.yaml `
+    --condition B4 `
+    --dynamics_checkpoint $DynamicsCheckpoint `
+    --output_dir (Join-Path $ProjectorDir "b4")
+```
+
+- B3: 16 state riwayat.
+- B3P: 16 state riwayat + 8 salinan state terakhir.
+- B4: 16 state riwayat + 8 forecast Dynamics beku.
+
+Pastikan tiga file berikut tersedia sebelum melanjutkan:
+
+```powershell
+$ProjectorCheckpoints = @(
+    (Join-Path $ProjectorDir "b3\best_projector.pth"),
+    (Join-Path $ProjectorDir "b3p\best_projector.pth"),
+    (Join-Path $ProjectorDir "b4\best_projector.pth")
+)
+foreach ($Checkpoint in $ProjectorCheckpoints) {
+    if (-not (Test-Path $Checkpoint)) { throw "Checkpoint projector tidak ditemukan: $Checkpoint" }
+}
+```
+
+## 7. Evaluasi test beku
+
+Jalankan langkah ini sekali setelah target, ambang, dan checkpoint sudah
+dibekukan.
+
+```powershell
+& $Py eksperimen_model\evaluate_dynamics.py `
+    --config eksperimen_model\configs\mmfi_dynamics_best_tuned.yaml `
+    --features_dir $Features `
+    --checkpoint $DynamicsCheckpoint `
+    --split test `
+    --batch_size 64 `
+    --output_dir (Join-Path $Run "dynamics_test")
+
+& $Py eksperimen_model\evaluate_reasoning.py `
+    --config eksperimen_model\configs\mmfi_projector_qwen.yaml `
+    --features_dir $Features `
+    --dynamics_checkpoint $DynamicsCheckpoint `
+    --checkpoint_b2 (Join-Path $ProbeDir "best_probe_model.pth") `
+    --checkpoint_b3 (Join-Path $ProjectorDir "b3\best_projector.pth") `
+    --checkpoint_b3p (Join-Path $ProjectorDir "b3p\best_projector.pth") `
+    --checkpoint_b4 (Join-Path $ProjectorDir "b4\best_projector.pth") `
+    --output_json (Join-Path $Run "stage4_reasoning_benchmark.json") `
+    --output_report (Join-Path $Run "stage4_reasoning_benchmark.md")
+```
+
+Metrik utama adalah selisih macro-F1 target masa depan **B4 − B3P** pada panel
+test yang sama. Laporan juga menyimpan respons mentah, status parse JSON,
+strata subjek, batas repetisi, dan kontrol sensor shuffle.
+
+Jangan menyimpulkan kontribusi Dynamics jika cakupan parse rendah, lineage
+artefak tidak cocok, atau B4 tidak mengungguli B3P pada metrik utama.
