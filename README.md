@@ -1,24 +1,23 @@
 # Learning Physical State Representations for Sensor-Grounded Reasoning and Future-State Prediction
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![PyTorch 2.6](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-ee4c2c.svg)](https://pytorch.org/)
+[![PyTorch 2.4+](https://img.shields.io/badge/PyTorch-2.4%2B%20CUDA%2012.4-ee4c2c.svg)](https://pytorch.org/)
 [![Dataset: MM-Fi](https://img.shields.io/badge/Dataset-MM--Fi%20mmWave%20Radar-green.svg)](https://github.com/ntu-radar/MM-Fi)
 [![Backbone: Point-MAE](https://img.shields.io/badge/Backbone-Point--MAE-orange.svg)](https://github.com/Pang-Holmes/Point-MAE)
 [![Frozen SLM: Qwen2.5-1.5B](https://img.shields.io/badge/Frozen%20SLM-Qwen2.5--1.5B--Instruct-blueviolet.svg)](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct)
-[![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-Repositori penelitian Tugas Akhir yang berfokus pada pemodelan representasi fisik spasial-temporal berbasis sinyal radar mmWave untuk meramalkan keadaan di masa depan (*future-state prediction*) serta menjembatani penalaran fisik dunia nyata (*sensor-grounded physical reasoning*) ke dalam *Small Language Models* (SLM) yang dibekukan (*frozen*).
+Repositori penelitian Tugas Akhir yang menguji apakah representasi spasial-temporal radar mmWave dapat diselaraskan dengan *frozen Small Language Model* (SLM) untuk melakukan *sensor-grounded physical reasoning* dan prediksi keadaan masa depan. Klaim empiris Tahap 4 masih menunggu training ulang dan evaluasi recovery.
 
 ---
 
 ## 1. Visi & Arsitektur Utama Sistem
 
-Prinsip fundamental riset ini adalah **pemisahan tegas (*decoupling*) antara modul persepsi sensor fisik dan modul kognitif bahasa**. Model bahasa **TIDAK PERNAH DILATIH DARI AWAL** dan dibiarkan dalam kondisi **FROZEN** murni. Hanya lapisan jembatan (*Two-Layer MLP Projector* ~1.97M parameter) yang dilatih untuk menyelaraskan representasi fisik ke ruang embedding bahasa:
+Prinsip fundamental riset ini adalah **pemisahan tegas (*decoupling*) antara modul persepsi sensor fisik dan modul kognitif bahasa**. Model bahasa **tidak dilatih ulang** dan tetap **frozen**. Pada Tahap 4 recovery, hanya *Two-Layer MLP Projector* (~1.97M parameter) yang dilatih untuk memetakan latent fisik ke ruang embedding bahasa:
 
 ```mermaid
 flowchart TD
     subgraph RF["RANAH PERSEPSI FISIK (Physical Grounding & Dynamics)"]
-        Raw["mmWave Radar Mentah (x, y, z, Doppler, SNR)<br/><i>N = 128 Points per Frame (MM-Fi Protocol 3)</i>"]
+        Raw["mmWave Radar Mentah (x, y, z, Doppler, SNR)<br/><i>Dinormalisasi lalu disampling/padding ke N = 128 titik per frame</i>"]
         Enc["Sensor Encoder (Point-MAE Transformer Backbone)<br/><b>[Tahap 1 & 2: Model Av2 — Frozen di Tahap 3 & 4]</b>"]
         Zt["Physical State Representation (Z_t: 384-dim)<br/><i>Karakteristik Spasial & Postur Skeleton 3D</i>"]
         Dyn["Dynamics Model (Residual Temporal Transformer)<br/><b>[Tahap 3: Frozen di Tahap 4]</b><br/><i>History Window T_in = 16 Frames (1.6 detik @ 10 Hz)</i>"]
@@ -43,16 +42,18 @@ flowchart TD
     LLM --> Output
 ```
 
+Dataset dan checkpoint berukuran besar tidak disimpan di checkout ini. Path pada tabel dan perintah adalah lokasi artefak lokal yang harus disiapkan sebelum menjalankan pipeline.
+
 ---
 
 ## 2. Peta Kurikulum Pelatihan (4 Tahapan)
 
 | Tahap | Fokus Penelitian | Masukan (*Input*) | Luaran / Target | Status | Checkpoint Utama |
 | :---: | :--- | :--- | :--- | :---: | :--- |
-| **Tahap 1** | Inisialisasi Bobot 3D CAD | ShapeNet CAD | Bobot Point-MAE Transformer Encoder | **Selesai** | `models/Point-MAE/pretrain.pth` |
-| **Tahap 2** | Adaptasi Domain Radar & 3D Pose | Radar Point Cloud ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Selesai** | `eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth` |
-| **Tahap 3** | Pemodelan Dinamika Temporal | Sekuens Status ($Z_{t-15 \dots t}, T_{in}=16$) | Prediksi Masa Depan ($Z_{t+1 \dots t+8}, T_{out}=8$) | **Selesai** | `eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth` |
-| **Tahap 4** | Penyelarasan Kognitif ke SLM | Vektor Status Fisik (16 / 24 Token) | *Pseudo-tokens* untuk penalaran SLM *frozen* | **Pemulihan** | `eksperimen_model/checkpoints/projector_stage4_recovery/` |
+| **Tahap 1** | Inisialisasi Bobot 3D CAD | ShapeNet CAD | Bobot Point-MAE Transformer Encoder | **Selesai; bobot eksternal** | `models/Point-MAE/pretrain.pth` |
+| **Tahap 2** | Adaptasi Domain Radar & 3D Pose | Radar Point Cloud ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Hasil tersedia; checkpoint eksternal** | `eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth` |
+| **Tahap 3** | Pemodelan Dinamika Temporal | Sekuens Status ($Z_{t-15 \dots t}, T_{in}=16$) | Prediksi Masa Depan ($Z_{t+1 \dots t+8}, T_{out}=8$) | **Recovery wajib** | `eksperimen_model/checkpoints/dynamics_stage4_recovery/best_dynamics_model.pth` |
+| **Tahap 4** | Penyelarasan Kognitif ke SLM | 16 atau 24 pseudo-token fisik | Penalaran JSON terstruktur dengan SLM *frozen* | **Recovery belum dijalankan** | `eksperimen_model/checkpoints/projector_stage4_recovery/` |
 
 ---
 
@@ -68,7 +69,7 @@ Tugas_Akhir/
 │   └── Point-MAE/                           # Bobot pretrained ShapeNet (pretrain.pth)
 ├── datasets/
 │   ├── MM-Fi Dataset/
-│   │   ├── MMFi_action_segments.csv         # 1.082 batas segmen repetisi gerakan frame
+│   │   ├── MMFi_action_segments.csv         # CSV rentang segmen repetisi gerakan
 │   │   └── filtered_mmwave/                 # Data radar .bin & ground_truth.npy (E01..E04/S01..S40)
 │   ├── MM-Fi_features_stage4_recovery/      # Fitur Z_t tervalidasi dengan metadata provenance
 │   └── MM-Fi_grounded_qa_stage4_recovery/   # Dataset QA geometri relatif & perubahan temporal
@@ -81,8 +82,8 @@ Tugas_Akhir/
 │   ├── sections-proposal/                   # Naskah modular draft proposal penelitian
 │   └── report_training/                     # Laporan training otomatis & grafik metrik
 │       ├── INDEX.md                         # Master tabel pembanding seluruh eksperimen
-│       ├── test_benchmark_results.json      # Metrik resmi held-out test set Tahap 2 (Model Av2)
-│       └── dynamics_benchmark_results.json  # Metrik resmi held-out test set Tahap 3 (Dynamics)
+│       ├── test_benchmark_results.json      # Laporan historis evaluasi Tahap 2
+│       └── dynamics_benchmark_results.json  # Laporan historis; recovery memakai folder run baru
 └── eksperimen_model/                        # Kode implementasi PyTorch (Pure-PyTorch)
     ├── configs/                             # File konfigurasi eksperimen YAML
     │   ├── mmfi_pose_best_tuned.yaml        # Konfigurasi optimal Pose Estimation (Model Av2)
@@ -117,7 +118,7 @@ Tugas_Akhir/
     │
     │   ── SKRIP EVALUASI & BENCHMARK ILMIAH ──
     ├── evaluate_pose.py                     # Benchmark Tahap 2: MPJPE, PA-MPJPE, PCK@100mm, CI 95%
-    ├── evaluate_dynamics.py                 # Benchmark Tahap 3: Latent MSE, Cosine Sim, Future MPJPE
+    ├── evaluate_dynamics.py                 # Benchmark Tahap 3: latent MSE, cosine similarity, persistence comparison
     └── evaluate_reasoning.py                # Benchmark Tahap 4: B4 vs B3P Paired Delta, Controls Shuffling
 ```
 
@@ -223,7 +224,7 @@ Mencegah Windows sleep (`SetThreadExecutionState`), menjalankan tuning, melatih 
 ```
 *Checkpoint tersimpan di: `eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth` dan `model_av2.pth`*
 
-#### Opsi C: Evaluasi Ilmiah Test Set (8 Subjek Unseen, 52.872 Frames)
+#### Opsi C: Evaluasi Ilmiah Test Set (8 subjek unseen; jumlah frame dibaca dari artefak run)
 ```powershell
 & ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --split test --batch_size 128 --output_json docs/report_training/test_benchmark_results.json
 ```
@@ -234,33 +235,34 @@ Mencegah Windows sleep (`SetThreadExecutionState`), menjalankan tuning, melatih 
 
 Tahap ini melatih `ResidualTemporalTransformer` untuk memprediksi sekuens masa depan $Z_{t+1 \dots t+8}$ ($T_{out}=8$, horizon 0.8 detik) dari riwayat $Z_{t-15 \dots t}$ ($T_{in}=16$, history 1.6 detik) pada laju 10 Hz dengan encoder fisik yang dibekukan (*frozen*).
 
-#### Opsi A: Master Marathon Pipeline (Tuning + Training 150 Epochs + Evaluation)
+#### Opsi A: Training Dynamics untuk Recovery Tahap 4
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/run_autotune_and_train_dynamics.py --n_trials 10 --tuning_epochs 10 --full_epochs 150 --batch_size 64
+& ".venv\Scripts\python.exe" eksperimen_model/train_dynamics.py --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --features_dir datasets/MM-Fi_features_stage4_recovery --epochs 150 --batch_size 64 --output_dir eksperimen_model/checkpoints/dynamics_stage4_recovery
 ```
 
-#### Opsi B: Pelatihan Langsung Dynamics Model (EMA & Cosine Warm Restarts)
+#### Opsi B: Evaluasi Dynamics pada validation/test
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/train_dynamics.py --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --epochs 150 --batch_size 64
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_dynamics.py --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --features_dir datasets/MM-Fi_features_stage4_recovery --checkpoint eksperimen_model/checkpoints/dynamics_stage4_recovery/best_dynamics_model.pth --split val --batch_size 64 --output_dir docs/report_training/stage4_recovery/dynamics_val
 ```
-*Checkpoint tersimpan di: `eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth`*
+Checkpoint lama di `eksperimen_model/checkpoints/dynamics/` tidak boleh dipakai untuk B4 tanpa audit lineage. Jalur recovery menghasilkan checkpoint baru dengan hash fitur dan statistik normalisasi.
 
-#### Opsi C: Evaluasi Benchmark Peramalan Masa Depan pada Held-Out Test Set
-Menghitung Latent MSE, Cosine Similarity, dan rekonstruksi skeleton masa depan (*Probed Future MPJPE*):
+#### Opsi C: Evaluasi test setelah gerbang validation lulus
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_dynamics.py --checkpoint eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --batch_size 64 --output_json docs/report_training/dynamics_test_benchmark.json
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_dynamics.py --config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --features_dir datasets/MM-Fi_features_stage4_recovery --checkpoint eksperimen_model/checkpoints/dynamics_stage4_recovery/best_dynamics_model.pth --split test --batch_size 64 --output_dir docs/report_training/stage4_recovery/dynamics_test
 ```
 
 ---
 
 ### 6.4. Tahap 4: Penyelarasan Kognitif ke Frozen SLM (Cross-Modal Projector & Reasoning)
 
-Tahap ini melatih *Two-Layer MLP Projector* ($384 \rightarrow 1024 \rightarrow 1536$) ke dalam ruang embedding `Qwen/Qwen2.5-1.5B-Instruct` yang dibekukan (*frozen*). Berdasarkan [runbook pemulihan](docs/stage4_recovery_runbook.md), setiap kondisi komparatif dilatih secara independen dengan panjang token yang setara.
+Tahap ini melatih *Two-Layer MLP Projector* ($384 \rightarrow 1024 \rightarrow 1536$) ke dalam ruang embedding `Qwen/Qwen2.5-1.5B-Instruct` yang dibekukan (*frozen*). Berdasarkan [runbook pemulihan](docs/stage4_recovery_runbook.md), setiap kondisi komparatif dilatih secara independen dengan prompt, seed, dan anggaran optimisasi yang sepadan. B3 memakai 16 token; B3P dan B4 memakai 24 token agar perbandingan primer B4–B3P memiliki panjang input yang sama.
+
+Konfigurasi default berada di `eksperimen_model/configs/mmfi_projector_qwen.yaml`: 5 epoch, `micro_batch_size=2`, dan 8 langkah akumulasi gradien (effective batch 16). Jika VRAM memungkinkan, micro-batch dapat dinaikkan bersama penurunan accumulation steps agar effective batch tetap sama pada semua kondisi.
 
 #### 1. Pelatihan Baseline B2 (Direct Task Probes)
 Mengukur kapasitas diskriminatif murni representasi sensor tanpa model bahasa:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/train_probe.py --qa_dir datasets/MM-Fi_grounded_qa_stage4_recovery --features_dir datasets/MM-Fi_features_stage4_recovery --epochs 30 --batch_size 128 --seed 42 --output_dir eksperimen_model/checkpoints/probe
+& ".venv\Scripts\python.exe" eksperimen_model/train_probe.py --qa_dir datasets/MM-Fi_grounded_qa_stage4_recovery --features_dir datasets/MM-Fi_features_stage4_recovery --epochs 30 --batch_size 128 --seed 42 --output_dir eksperimen_model/checkpoints/probe_stage4_recovery
 ```
 
 #### 2. Pelatihan Two-Layer MLP Projector per Kondisi
@@ -279,7 +281,7 @@ Melatih adaptor modalitas untuk masing-masing kondisi pembanding:
 #### 3. Evaluasi Benchmark Ilmiah Penalaran Berpasangan (Paired Comparison)
 Mengevaluasi akurasi, Macro-F1, selisih berpasangan B4 − B3P, serta kontrol pengacakan sensor (*Cross-Action & Within-Action Shuffling*) pada 8 subjek test held-out:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_reasoning.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --dynamics_checkpoint eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth --dynamics_config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --checkpoint_b2 eksperimen_model/checkpoints/probe/best_probe_model.pth --checkpoint_b3 eksperimen_model/checkpoints/projector_stage4_recovery/b3/best_projector.pth --checkpoint_b3p eksperimen_model/checkpoints/projector_stage4_recovery/b3p/best_projector.pth --checkpoint_b4 eksperimen_model/checkpoints/projector_stage4_recovery/b4/best_projector.pth --output_json docs/report_training/stage4_reasoning_benchmark.json --output_report docs/report_training/stage4_reasoning_benchmark.md
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_reasoning.py --config eksperimen_model/configs/mmfi_projector_qwen.yaml --features_dir datasets/MM-Fi_features_stage4_recovery --dynamics_checkpoint eksperimen_model/checkpoints/dynamics_stage4_recovery/best_dynamics_model.pth --dynamics_config eksperimen_model/configs/mmfi_dynamics_best_tuned.yaml --checkpoint_b2 eksperimen_model/checkpoints/probe_stage4_recovery/best_probe_model.pth --checkpoint_b3 eksperimen_model/checkpoints/projector_stage4_recovery/b3/best_projector.pth --checkpoint_b3p eksperimen_model/checkpoints/projector_stage4_recovery/b3p/best_projector.pth --checkpoint_b4 eksperimen_model/checkpoints/projector_stage4_recovery/b4/best_projector.pth --output_json docs/report_training/stage4_recovery/reasoning_benchmark.json --output_report docs/report_training/stage4_recovery/reasoning_benchmark.md
 ```
 
 ---
@@ -291,9 +293,9 @@ Untuk memvalidasi bahwa model bahasa benar-benar bernalar berdasarkan sinyal sen
 ### 7.1. Matriks Baseline (B0 – B5)
 | Kode | Nama Arsitektur | Masukan Representasi Fisik | Komponen Bahasa | Tujuan Ilmiah |
 | :---: | :--- | :--- | :--- | :--- |
-| **B0** | Prior / Persistence Rule | Kelas mayoritas (kini) / Ulang status kini (masa depan) | Rule-Based (Non-LLM) | Menentukan batas bawah kesulitan tugas dan nilai tambah transformasi |
-| **B1** | Blind Text LLM | *None* (Seluruh token sensor di-nolkan) | Frozen Qwen2.5-1.5B | Mengukur bias apriori bahasa & probabilitas tebakan dari teks semata |
-| **B2** | Direct Task Probes | Vektor $Z_t$ fisik langsung | Direct Linear/MLP Heads | Menguji keterbacaan target dari representasi laten global |
+| **B0** | Prior / Persistence Rule | Kelas mayoritas untuk target saat ini; label `stable` untuk target perubahan masa depan | Rule-Based (Non-LLM) | Menentukan batas bawah kesulitan tugas dan nilai tambah transformasi |
+| **B1** | Blind Text LLM | Tidak ada token sensor fisik | Frozen Qwen2.5-1.5B | Mengukur prior bahasa dan tebakan dari teks semata |
+| **B2** | Direct Task Probes | Vektor $Z_t$ fisik langsung atau 16 state riwayat | Dua linear heads terpisah | Menguji keterbacaan target dari representasi laten; bukan pembanding kapasitas LLM |
 | **B3** | History-Only | 16 Token Riwayat ($Z_{t-15 \dots t}$) | MLP + Frozen SLM | Mengukur performa jika hanya diberi konteks masa lalu tanpa prediksi |
 | **B3P** | **Persistence Control** | **24 Token: 16 Riwayat + 8 Replikasi $Z_t$** | **MLP + Frozen SLM** | **Pembanding primer: menyamakan panjang 24 token dengan B4** |
 | **B4** | **Proposed Full Pipeline** | **24 Token: 16 Riwayat + 8 Forecast $\hat{Z}$** | **MLP + Frozen SLM** | **Arsitektur utama Tugas Akhir (Transformasi Prediktif Dinamika)** |
@@ -303,7 +305,7 @@ Untuk memvalidasi bahwa model bahasa benar-benar bernalar berdasarkan sinyal sen
 > **Perbandingan Primer:**  
 > Evaluasi utama difokuskan pada selisih berpasangan:
 > $$\Delta = \text{Macro-F1}_{\text{B4}} - \text{Macro-F1}_{\text{B3P}}$$
-> Karena B4 dan B3P menerima panjang token yang identik (24 token) dan konteks riwayat yang sama, selisih positif membuktikan bahwa peramalan Dynamics Model memberikan informasi pergerakan yang fungsional di atas sekadar mengasumsikan tubuh diam/konstan.
+> Karena B4 dan B3P menerima panjang token yang identik (24 token) dan konteks riwayat yang sama, selisih positif mendukung klaim bahwa forecast Dynamics membantu target yang diuji di atas baseline persistensi. Ini tidak membuktikan bahwa Dynamics menciptakan informasi sensor baru atau berlaku di luar dataset, tugas, dan horizon yang diuji.
 
 ### 7.2. Kontrol Pengacakan Sensor (*Negative Shuffling Controls*)
 1. **Cross-Action Shuffling:** Menghubungkan teks pertanyaan aksi $A_i$ dengan token fisik dari aksi acak $A_j$ ($i \ne j$). Menunjukkan kejatuhan performa jika keselarasan sensorik diputus secara kasar.
@@ -311,38 +313,33 @@ Untuk memvalidasi bahwa model bahasa benar-benar bernalar berdasarkan sinyal sen
 
 ---
 
-## 8. Target Metrik Kuantitatif & Capaian Ilmiah Riil
+## 8. Status Bukti dan Metrik Evaluasi
 
-Berikut adalah perbandingan objektif antara target penelitian dan hasil empiris yang terverifikasi pada held-out test set terisolasi:
+Angka pada tabel ini memisahkan hasil historis Batch 1 dari metrik recovery yang belum tersedia. Hasil historis tidak boleh dipakai sebagai bukti klaim Stage 4 karena jalur QA, Dynamics, dan evaluasi sebelumnya memiliki masalah validitas yang sedang diperbaiki.
 
-| Tahapan | Metrik Kunci | Target Tugas Akhir (Silver) | Target Publikasi (Gold) | Capaian Riil (Test Set Unseen) | Status Ilmiah |
+| Tahapan | Metrik Kunci | Target Tugas Akhir (Silver) | Target Publikasi (Gold) | Angka historis Batch 1 / status recovery | Status Ilmiah |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Tahap 2 (Pose)** | **Overall MPJPE** | **$\le 140 – 150$ mm** | $\le 110$ mm | **197.63 mm** *(Test, 52.8k frames)*<br>*(Train: 128.5 mm, Val: 190.2 mm)* | Baseline Layak Radar Sparse ($N=128$)<br>*Lihat analisis anatomis di bawah* |
+| **Tahap 2 (Pose)** | **Overall MPJPE** | **$\le 140 – 150$ mm** | $\le 110$ mm | **197.63 mm** *(laporan Batch 1; Test)* | Hasil historis; tidak menjadi gate Stage 4 |
 | | **Procrustes PA-MPJPE** | **$\le 100$ mm** | $\le 80$ mm | **127.28 mm** *(Test Set)* | Rigid Alignment (Delta Translasi: 70.3 mm) |
 | | **PCK @ 100 mm** | **$\ge 70\%$** | $\ge 85\%$ | **20.06%** *(PCK @ 150mm: 43.15%)* | 1 dari 5 sendi akurat presisi < 10 cm |
-| | **Cross-Env Robustness (ERS)** | **$\ge 0.80$** | $\ge 0.85$ | **0.8587** | **Tercapai** (Invariansi Ruangan E01–E04) |
-| **Tahap 3 (Dynamics)** | **Forecast MPJPE** | **$\le 220$ mm** | $\le 180$ mm | **202.79 mm** *(Test Set)* | **Tercapai** (Oracle MPJPE: 193.34 mm) |
-| | **Net Degradation ($\Delta$)** | **$\le 15$ mm** | $\le 8$ mm | **+9.44 mm** | **Tercapai** (Stabilitas lintasan tinggi) |
-| | **Latent Cosine Sim (Overall)**| **$\ge 0.60$** | $\ge 0.80$ | **0.4846** *(h=1: 0.681, h=8: 0.414)* | Mengikuti hukum disipasi inersia balistik |
-| | **Latent MSE** | **$\le 0.80$** | $\le 0.50$ | **0.7539** | **Tercapai** (MSE ruang laten 384d) |
+| | **Cross-Env Robustness (ERS)** | **$\ge 0.80$** | $\ge 0.85$ | **0.8587** | Dilaporkan pada Batch 1; bukan validasi recovery Stage 4 |
+| **Tahap 3 (Dynamics)** | **Latent MSE / cosine / persistence delta** | Ditentukan sebelum test | Ditentukan sebelum test | **Recovery belum dijalankan** | Evaluasi utama memakai latent forecast dan baseline persistensi; MPJPE lama tidak dipakai sebagai bukti utama |
 | **Tahap 4 (Reasoning)** | **Parse Coverage Rate** | **$\ge 90\%$** | $\ge 98\%$ | *In Recovery Phase* | Evaluasi berbasis JSON schema ketat |
 | | **Primary Delta ($\text{B4} - \text{B3P}$)** | **$> 0.0$** | $> +0.10$ F1 | *In Recovery Phase* | Menguji keunggulan forecast vs persistensi |
 | | **Sensor Shuffling Degradation**| **$\ge 15\%$ drop** | $\ge 30\%$ drop | *In Recovery Phase* | Memvalidasi dependensi sensorik |
 
-### Penjelasan Ilmiah Capaian Tahap 2 & 3:
-1. **Dinamika Error MPJPE Tahap 2 (197.6 mm):**
-   - Hasil 197.6 mm merupakan pencapaian yang realistis untuk pembacaan titik radar mmWave tanpa kamera (*single-frame, single-chip radar*, $N=128$).
-   - **Analisis Anatomis:** Error terbesar terkonsentrasi pada ekstremitas atas: *Wrist* (pergelangan tangan: 292–295 mm) dan *Elbow* (221–226 mm) akibat kecepatan sudut tinggi dan luas penampang pantul radar yang kecil. Sebaliknya, sumbu tubuh sentral (*Pelvis/Spine*: 163–168 mm) dan ekstremitas bawah (*Legs*: 170.5 mm) memiliki akurasi jauh lebih tinggi.
-   - **Komponen Translasi:** Selisih antara MPJPE (197.6 mm) dan PA-MPJPE (127.3 mm) menunjukkan bahwa **35.6% (70.3 mm) dari error berasal dari penentuan lokasi global tubuh terhadap rig radar**, bukan dari distorsi postur skeleton.
-2. **Karakteristik Temporal Tahap 3 (Latent Cosine Sim 0.485):**
-   - Cosine similarity dimulai dari **0.6809** pada langkah $t+1$ (+100 ms) dan meluruh secara bertahap hingga **0.4140** pada $t+8$ (+800 ms).
-   - Fenomena peluruhan ini selaras sempurna dengan prinsip neurofisiologi motorik manusia: fase 100–300 ms berada dalam rezim balistik inersial terbuka (*open-loop deterministic*), sedangkan di atas 500 ms subjek mulai melakukan koreksi sensorimotor sukarela (*voluntary intention branching*).
+### Batas interpretasi
+
+- Hasil pose Batch 1 adalah bukti kualitas checkpoint pose pada split yang dilaporkan, bukan bukti bahwa latent global $Z_t$ menyimpan semua atribut fisik.
+- Metrik pose Dynamics lama yang mengulang satu latent ke slot pose head tidak digunakan untuk memvalidasi forecast recovery. Recovery membandingkan latent forecast dengan persistensi pada horizon yang sama.
+- Nilai cosine yang menurun terhadap horizon tidak boleh dijelaskan sebagai hukum neurofisiologi tanpa eksperimen biomekanika khusus.
+- Klaim sensor-grounded reasoning baru dapat dibuat setelah probe, Dynamics, B3, B3P, B4, dan kontrol pengacakan lulus pada panel test yang sama.
 
 ---
 
 ## 9. Lisensi & Sitasi
 
-Proyek penelitian ini dirilis di bawah lisensi MIT. Jika Anda memanfaatkan basis kode atau rancangan arsitektur ini dalam riset Anda, silakan rujuk:
+Repositori ini belum menyertakan berkas `LICENSE`. Status lisensi harus ditetapkan sebelum kode atau artefak didistribusikan ulang. Jika Anda memanfaatkan rancangan penelitian ini dalam riset Anda, silakan rujuk:
 
 ```bibtex
 @misc{tugas_akhir_physical_world_modeling_2026,

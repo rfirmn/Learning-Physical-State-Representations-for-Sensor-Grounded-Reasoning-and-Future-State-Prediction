@@ -313,6 +313,7 @@ def report(result: dict[str, Any]) -> str:
         ])
     lines.extend([
         "", "Primary paired comparison: B4 minus B3P on future wrist-separation change.",
+        "Additional ablations: B4 minus B3, B3P minus B3, and optional B5 minus B4.",
         "See JSON for recording-cluster intervals, subject and repetition-boundary strata, "
         "raw responses, and shuffle donor mappings.",
         "B2 is a direct probe when supplied; B5 is an optional observed-future diagnostic.",
@@ -514,6 +515,13 @@ def main() -> None:
         }
         for other in ("B3P", "B3", "B1")
     }
+    comparisons["B3P_minus_B3"] = {
+        task: paired_delta(rows["B3P"], rows["B3"], task, args.seed) for task in TASK_LABELS
+    }
+    if "B5" in rows:
+        comparisons["B5_minus_B4"] = {
+            task: paired_delta(rows["B5"], rows["B4"], task, args.seed) for task in TASK_LABELS
+        }
     controls = {}
     for kind in ("cross_action", "within_action"):
         name = f"B4_{kind}_shuffle"
