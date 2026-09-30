@@ -1,0 +1,122 @@
+{
+  "proposed": {
+    "mode": "proposed",
+    "posture_accuracy": 0.17664670658682635,
+    "posture_ci95": [
+      0.13764970059880247,
+      0.218562874251497
+    ],
+    "lateral_accuracy": 0.0030959752321981426,
+    "lateral_ci95": [
+      0.0,
+      0.009287925696594427
+    ],
+    "direction_accuracy": 0.07975460122699386,
+    "direction_ci95": [
+      0.04294478527607362,
+      0.12269938650306748
+    ],
+    "future_direction_accuracy": 0.0,
+    "future_direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "depth_mae_m": 1.28
+  },
+  "blind_text": {
+    "mode": "blind_text",
+    "posture_accuracy": 0.0,
+    "posture_ci95": [
+      0.0,
+      0.0
+    ],
+    "lateral_accuracy": 0.0,
+    "lateral_ci95": [
+      0.0,
+      0.0
+    ],
+    "direction_accuracy": 0.0,
+    "direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "future_direction_accuracy": 0.0,
+    "future_direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "depth_mae_m": 0.0
+  },
+  "no_future": {
+    "mode": "no_future",
+    "posture_accuracy": 0.25748502994011974,
+    "posture_ci95": [
+      0.2125748502994012,
+      0.3023952095808383
+    ],
+    "lateral_accuracy": 0.0,
+    "lateral_ci95": [
+      0.0,
+      0.0
+    ],
+    "direction_accuracy": 0.0,
+    "direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "future_direction_accuracy": 0.0,
+    "future_direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "depth_mae_m": 1.9257142857142857
+  },
+  "cross_action_shuffled": {
+    "mode": "cross_action_shuffled",
+    "posture_accuracy": 0.1407185628742515,
+    "posture_ci95": [
+      0.10479041916167664,
+      0.17964071856287425
+    ],
+    "lateral_accuracy": 0.0,
+    "lateral_ci95": [
+      0.0,
+      0.0
+    ],
+    "direction_accuracy": 0.15950920245398773,
+    "direction_ci95": [
+      0.10429447852760736,
+      0.22085889570552147
+    ],
+    "future_direction_accuracy": 0.0,
+    "future_direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "depth_mae_m": 0.9203571428571429
+  },
+  "within_action_shuffled": {
+    "mode": "within_action_shuffled",
+    "posture_accuracy": 0.17065868263473055,
+    "posture_ci95": [
+      0.1317365269461078,
+      0.20958083832335328
+    ],
+    "lateral_accuracy": 0.0,
+    "lateral_ci95": [
+      0.0,
+      0.0
+    ],
+    "direction_accuracy": 0.15950920245398773,
+    "direction_ci95": [
+      0.09815950920245399,
+      0.22085889570552147
+    ],
+    "future_direction_accuracy": 0.0,
+    "future_direction_ci95": [
+      0.0,
+      0.0
+    ],
+    "depth_mae_m": 1.4461904761904762
+  }
+}

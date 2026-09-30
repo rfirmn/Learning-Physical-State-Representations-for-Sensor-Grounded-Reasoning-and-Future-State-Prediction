@@ -1,0 +1,7 @@
+{
+  "baseline": "B2_Direct_Probe",
+  "test_posture_accuracy": 0.9998360118071499,
+  "test_lateral_accuracy": 0.8612659888488029,
+  "test_direction_accuracy": 0.955723187930469,
+  "test_depth_mae_meters": 0.09394452132365867
+}
