@@ -1,0 +1,12 @@
+# Separate from the historical CUDA-specific MM-Fi dependency list.
+torch>=2.4,<3
+numpy>=1.26,<3
+scipy>=1.13,<2
+matplotlib>=3.8,<4
+pyyaml>=6.0.1,<7
+lmdb>=1.5,<3
+msgpack>=1.0.8,<2
+transformers==4.45.2
+accelerate>=0.34,<2
+# Optional offline SMPL-X exporter only; assets are supplied separately.
+smplx==0.1.28

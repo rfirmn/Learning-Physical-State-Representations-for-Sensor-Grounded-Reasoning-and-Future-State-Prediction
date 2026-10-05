@@ -1,0 +1,104 @@
+{
+  "checks": [
+    {
+      "exit_code": 0,
+      "module": "test_m4human_kinematics_contract",
+      "output": "Matplotlib is building the font cache; this may take a moment.\nPASS: derivative, support, task recipes, losses/metrics, checkpoint and incomplete-run guards (synthetic CPU)\n",
+      "seconds": 14.206757040985394
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_encoder_contract",
+      "output": "{\n  \"data_kind\": \"synthetic\",\n  \"status\": \"passed\",\n  \"checks\": [\n    \"bounded_serializers\",\n    \"endianness\",\n    \"safe_keys\",\n    \"immutable_flat_lmdb_spawn\",\n    \"split_context\",\n    \"sampling_permutation\",\n    \"masked_pooling\",\n    \"head_gradients\",\n    \"tiny_overfit\",\n    \"coordinate_units\",\n    \"strict_checkpoint\",\n    \"metric_recomputation\",\n    \"state_windows\"\n  ],\n  \"parameter_count\": 910466,\n  \"tiny_overfit_loss_initial\": 0.9923661351203918,\n  \"tiny_overfit_loss_final\": 0.6576157212257385,\n  \"synthetic_pipeline\": {\n    \"audit_frames\": 120,\n    \"target_frames\": 120,\n    \"state_anchors\": 37,\n    \"windows\": 1\n  },\n  \"real_data_gates\": \"not_run\"\n}\n",
+      "seconds": 4.029698583006393
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_motion_contract",
+      "output": "PASS synthetic motion/tokenizer/full-H/auxiliary-gradient/separate-clipping contract; real-data gates remain unverified\n",
+      "seconds": 1.426723959040828
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_language_contract",
+      "output": "Starting from v4.46, the `logits` model output will have the same type as the model (except at train time, where it will always be FP32)\nFrom v4.47 onwards, when a model cache is to be returned, `generate` will return a `Cache` instance instead by default (as opposed to the legacy tuple of tuples format). If you want to keep returning the legacy format, please set `return_legacy_cache=True`.\nPinned random tiny Qwen2 architecture: PASS (pretrained checkpoint gate not_run)\nM4Human language contract: PASS (offline tiny LM; actual Qwen gate not_run)\n",
+      "seconds": 2.316488125012256
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_physical_contract",
+      "output": "PASS physical QA/probe provenance, pre-outcome lock, paired row-weighted subject bootstrap\n",
+      "seconds": 0.7731195000233129
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_integration",
+      "output": "PASS synthetic stage M -> exact H -> paired C -> exact U -> fresh M/U probes; artifacts recomputed; real-data gates not_run\n",
+      "seconds": 8.137851750012487
+    }
+  ],
+  "data_kind": "synthetic",
+  "device": "cpu",
+  "finished_utc": "2026-10-04T23:20:59.958034+00:00",
+  "platform": "macOS-26.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "scientific_gates": "not_run",
+  "source_changed_during_checks": false,
+  "source_sha256": {
+    "eksperimen_model/audit_m4human.py": "cf7aea871a848e57e0e99b58275b24d27c2e96347df0d5179f6eaa971819dd43",
+    "eksperimen_model/configs/m4human_compressor.yaml": "64c7c34c55ea64a129a86e569ee2d81a69b570c380a69e311ef7b3cccf542c96",
+    "eksperimen_model/configs/m4human_encoder.yaml": "942e217894e9b4b4a46c1b3c2ec6629c683ee762bb8a26101e03fb74c5cf9e0d",
+    "eksperimen_model/configs/m4human_motion.yaml": "fe6a08b0f9809b11cf2365c02a037cd4b5ac4685b9fa5b2b7dd48a019dfdb433",
+    "eksperimen_model/configs/m4human_probes.yaml": "63cf161fb495fb03b51c3032566b54130f0903cd0babe5f9870020fc18c69ab4",
+    "eksperimen_model/configs/m4human_projector.yaml": "c5f916d94b360391c97e9680606a0f88181c2c5eec78235a261cdb55a048a868",
+    "eksperimen_model/datasets/generate_m4human_qa.py": "ce854df94b8fb270a23757c8faf1fcc70924b60fefaf3c352864537a8cfeff87",
+    "eksperimen_model/datasets/m4human_dataset.py": "62aeaf6a12ac05d83d41c819f350da834b9e5abf9a39c8570b827a5b2fb4eef0",
+    "eksperimen_model/datasets/m4human_qa_dataset.py": "843f5b2437340d914c39bfa26e7b87e8b08bd391823549a05d63d1229ff50801",
+    "eksperimen_model/datasets/m4human_state_dataset.py": "f8060ffb71972caf5b3757239095feb974d8d779f1f093e38514fb29248b52c3",
+    "eksperimen_model/evaluate_m4human.py": "2ad8876eb158c228f2b15018ef33b58cdb4c84d1791d63ac09d1da749b04be6e",
+    "eksperimen_model/evaluate_m4human_physical.py": "76faf221e584325bd66f80cad9f37a02e05eb8f99d4a30fa507369782ab53b5e",
+    "eksperimen_model/evaluate_m4human_reasoning.py": "af20e846bd254cc97524089fa9092c1c9328d4e65147eda3de12a46d792b3071",
+    "eksperimen_model/export_m4human_targets.py": "0f2dc798120e34c9709b66571c0eaeaec5412fd6110ddccf0da44ab0809357a9",
+    "eksperimen_model/extract_m4human_motion.py": "a9567b2e9568b6acb20dfccfc8023ddc64c12b9f5269b795e778b1e191f19766",
+    "eksperimen_model/extract_m4human_states.py": "2a48771f7fe904833a0cf030c854bc3c31e6117eee1e173fce129d353976d90b",
+    "eksperimen_model/extract_m4human_tokens.py": "8a9922093a91641a03be704aa41f0fa6927fd85bd4a5fa58403d074a8fdebe72",
+    "eksperimen_model/m4human_evaluation.py": "e31382a5cd065ad2264048e97fd9df853bc64970e8e07c598cefc5c5e787a86f",
+    "eksperimen_model/m4human_training.py": "6ed6258fbf52322358833c3e455eab1d6622791a378be66e26e97e46cbaa7226",
+    "eksperimen_model/models/m4human_encoder.py": "13d8c2df33f1b0c245afeb2b8353d043e22cce0a71939554005f717d75e6d087",
+    "eksperimen_model/models/m4human_motion.py": "8464cb9fce36ebed6422e2d167961e7a7831add26f82720d05abdb9f9e4045f0",
+    "eksperimen_model/models/m4human_projector.py": "e2761e4c263da2060cd53d1e6bc7839a9f14d1fd7d58252b8be479fd03d88710",
+    "eksperimen_model/models/m4human_readout.py": "67dd17f5d7061140c6bfbca7d249fd0d9bfcfbff459fd829fe95ed1bc2ab9c44",
+    "eksperimen_model/models/m4human_tokenizer.py": "e6a91ace6ebe99e68a1783f4756835fca62bf9831deaff19ca22d5148a01adc1",
+    "eksperimen_model/test_m4human_encoder_contract.py": "9420994d5bbc83870117091073e10cf7baf79c30e7e1d65b7249f77fd2461e9c",
+    "eksperimen_model/test_m4human_integration.py": "4f79822b63e82c5cdd8f1eab5129ba05e41b42c3ba2a948fec6a4e163b938388",
+    "eksperimen_model/test_m4human_kinematics_contract.py": "455997d2e7bbd81c4afc5d8ca72abb02b6c65c4896623592e3ecbd6feb872d55",
+    "eksperimen_model/test_m4human_language_contract.py": "d113e974aab7a6d73a10f7e22acbae0deb1b88e2c28bb84c0e9cde6b4c9e93c0",
+    "eksperimen_model/test_m4human_motion_contract.py": "6d2d1ba18aed78edc8ee64d8123457c933f1958c99b2702fbbe581d9dbe2d005",
+    "eksperimen_model/test_m4human_physical_contract.py": "ada411c9c027e186666be13781a1e93a8652bf496877c5ca15d1f1755bf34600",
+    "eksperimen_model/test_m4human_pipeline.py": "5932b53ed3d804794406642758f5b8fc7e571763b95823cbdd411275fd958354",
+    "eksperimen_model/train_m4human_compressor.py": "df484f9a979f5fb734cb8d84667c14690424f728c138ec17901710f3c046363e",
+    "eksperimen_model/train_m4human_encoder.py": "bd0ce2cc50c4dc8982fc8435b2e45f3eecdd68aa1b55c267c4a43c500266e855",
+    "eksperimen_model/train_m4human_motion.py": "356ce1bb7d9eefba268bc505fbbafb6e13221b38d62ba04bbe479ba94320069c",
+    "eksperimen_model/train_m4human_probes.py": "325574bae681c0c870ee858866b5b93f3f1acfa0b555abc840e4e6618617744a",
+    "eksperimen_model/train_m4human_projector.py": "38b6d2f11dab4796c0c7bd29b359ec19424615b09187735b8f6512e5fa4162db",
+    "eksperimen_model/utils/__init__.py": "9cbecc9c8e569b1c2fccdadd30d84a07efce09b3bf53583abeda58aeb3df6dc1",
+    "eksperimen_model/utils/m4human_kinematics.py": "ec42e1b670703decbe295541c1d5606510e13d981bb2fdf0f87ca01c5939c383",
+    "eksperimen_model/utils/m4human_runtime.py": "a62e619bdcac5861b4b66b1da588aa13648ee716c46515f3e867f789250b811c",
+    "eksperimen_model/validate_m4human_run.py": "2c85904de88d802f580f05ab82334fac63de665bf5fb46953e831804569f5c4a",
+    "requirements-m4human.txt": "8d5159e9a2c9f41acd31400717264721ae9d08ec7439f9d6cddf2e21367b5cea"
+  },
+  "started_utc": "2026-10-04T23:20:29.062547+00:00",
+  "status": "passed",
+  "versions": {
+    "accelerate": "1.15.0",
+    "lmdb": "2.3.0",
+    "matplotlib": "3.11.2",
+    "msgpack": "1.2.3",
+    "numpy": "2.5.3",
+    "pyyaml": "6.0.3",
+    "scipy": "1.18.1",
+    "smplx": "0.1.28",
+    "torch": "2.14.1",
+    "transformers": "4.45.2"
+  }
+}

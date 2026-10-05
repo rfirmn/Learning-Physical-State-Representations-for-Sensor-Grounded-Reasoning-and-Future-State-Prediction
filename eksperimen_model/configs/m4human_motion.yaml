@@ -1,0 +1,31 @@
+contract_version: m4human_kinetok_v3
+data_kind: m4human
+dataset_root: datasets/m4human
+source_cache: derived_data/m4human/m4human_kinetok_v3/states
+target_cache: derived_data/m4human/m4human_kinetok_v3/targets
+output_dir: docs/report_training/RUN_M4HUMAN_REPLACE_TIMESTAMP_M
+scientific_gates_passed: false
+precision_gate_passed: false
+precision: fp16_amp
+device: cuda
+seed: 42
+pelvis_index: 0 # Resolve from audited joint registry before training.
+max_gap_s: null
+learning_rate: 0.0003
+micro_batch: 1
+accumulation: 32
+successful_updates: null # Pin from pilot; no unilateral early stop.
+train_stride: 8
+val_stride: 16
+extraction_stride: 8
+query_chunk: 128
+diagnostic_windows: 2
+joint_map: null
+recipe: null
+lineage:
+  schema_hash: null
+  coordinate_hash: null
+  joint_map_hash: null
+  split_hash: null
+  recipe_hash: null
+  encoder_hash: null

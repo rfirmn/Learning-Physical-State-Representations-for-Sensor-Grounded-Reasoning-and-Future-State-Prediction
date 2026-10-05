@@ -51,6 +51,9 @@ datasets/MM-Fi Dataset/filtered_mmwave/
 datasets/MM-Fi_features_v2/
 datasets/MM-Fi_extracted_features/*
 datasets/MM-Fi_grounded_qa/*.jsonl
+datasets/m4human/
+derived_data/m4human/
+derived/m4human/
 datasets/**/*.bin
 datasets/**/*.npy
 !datasets/**/.gitkeep

@@ -1,0 +1,29 @@
+contract_version: m4human_kinetok_v3
+dataset_root: datasets/m4human
+llm:
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  revision: null # full commit required on experiment machine
+  transformers_version: 4.45.2
+projector: {input_dim: 256, hidden_dim: 512, alpha_policy: common_train_only}
+training:
+  seed: 42
+  epochs_cap: 5
+  micro_batch: 1
+  accumulation: 16
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  warmup_fraction: 0.05
+  clip_grad_norm: 1.0
+  max_successful_updates: 1000
+  precision: fp16_amp_grad_scaler
+  max_prefix_tokens: 192
+  max_total_tokens: 256
+generation: {max_new_tokens: 64, do_sample: false, num_beams: 1, use_cache: true}
+selected_tasks: [root_speed_trend, relative_limb_motion]
+primary_budget: 16
+lineage:
+  encoder_hash: null
+  motion_hash: null
+  recipe_hash: null
+  joint_map_hash: null
+  split_hash: null
