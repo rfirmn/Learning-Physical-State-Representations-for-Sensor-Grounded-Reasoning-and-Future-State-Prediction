@@ -17,7 +17,8 @@ from torch.utils.data import Dataset, DataLoader
 
 from eksperimen_model.models.m4human_motion import CausalDSTformerLiteV1, make_rich_memory, build_rich_attention_memory
 from eksperimen_model.models.m4human_tokenizer import KinematicTokenLearnerV1
-from eksperimen_model.models.m4human_readout import KinematicReadoutV2, FullHFidelityDecoderV1, TokenKinematicReadoutV1, fidelity_loss, clip_compression_gradients
+from eksperimen_model.models.m4human_readout import KinematicReadoutV2, FullHFidelityDecoderV1, TokenKinematicReadoutV1, fidelity_loss
+from eksperimen_model.utils.m4human_performance import configure_runtime, make_loader, finish_optimizer_step, ResourceMonitor
 from eksperimen_model.utils.m4human_runtime import CONTRACT_VERSION, canonical_hash, file_sha256, state_dict_hash, atomic_json, read_json, iter_jsonl, require_lineage, seed_everything, freeze, save_checkpoint, load_checkpoint, RunLogger, adamw_parameters, rng_state, restore_rng_state
 from eksperimen_model.utils.m4human_kinematics import build_physical_targets, derivative_support_mask, kinematic_loss, physical_metrics, build_evidence
 
@@ -33,8 +34,9 @@ class WindowTensorCache(Dataset):
         require_lineage(self.metadata, expected_lineage or {})
         if not self.metadata.get('index_sha256') or file_sha256(self.root / 'index.jsonl') != self.metadata['index_sha256']:
             raise ValueError('window index missing integrity hash or changed')
-        all_rows = list(iter_jsonl(self.root / 'index.jsonl'))
-        if len(all_rows) != self.metadata.get('count') or len({r['window_id'] for r in all_rows}) != len(all_rows):
+        from eksperimen_model.datasets.m4human_dataset import ManifestSequence, ManifestView
+        all_rows = ManifestSequence(self.root / 'index.jsonl',identity_field='window_id')
+        if len(all_rows) != self.metadata.get('count'):
             raise ValueError('window cache index count or identity mismatch')
         subject_splits, recordings = {}, {}
         for row in all_rows:
@@ -45,8 +47,8 @@ class WindowTensorCache(Dataset):
             identity = (row['subject_id'],row['split'])
             if recordings.setdefault(row['recording_id'],identity) != identity:
                 raise ValueError('cache recording identity leakage')
-        self.rows = [r for r in all_rows if split is None or r['split'] == split]
-        if not self.rows or len({r['window_id'] for r in self.rows}) != len(self.rows):
+        self.rows = all_rows if split is None else ManifestView(all_rows,[i for i,r in enumerate(all_rows) if r['split'] == split])
+        if not self.rows:
             raise ValueError('empty cache partition or duplicated window IDs')
         for row in self.rows:
             if require_targets and not row.get('target_path'):
@@ -60,15 +62,14 @@ class WindowTensorCache(Dataset):
         path = (self.root / row['tensor_path']).resolve()
         if self.root.resolve() not in path.parents:
             raise ValueError('cache tensor path escapes artifact root')
-        if not row.get('tensor_sha256') or file_sha256(path) != row['tensor_sha256']:
-            raise ValueError(f'cache payload changed: {row["window_id"]}')
-        tensor = torch.load(path, map_location='cpu', weights_only=True)
+        from eksperimen_model.datasets.m4human_dataset import checked_tensor_load
+        tensor = checked_tensor_load(path,row.get('tensor_sha256'))
         target = {}
         if self.require_targets:
             target_path = (self.root / row['target_path']).resolve()
-            if self.root.resolve() not in target_path.parents or file_sha256(target_path) != row.get('target_sha256'):
+            if self.root.resolve() not in target_path.parents:
                 raise ValueError('offline target path or checksum changed')
-            target = torch.load(target_path, map_location='cpu', weights_only=True)
+            target = checked_tensor_load(target_path,row.get('target_sha256'))
         return {'sensor': tensor, 'targets': target, 'provenance': row}
 
 
@@ -78,8 +79,8 @@ def _collate(samples):
             'provenance': [s['provenance'] for s in samples]}
 
 
-def _device_batch(sample, device):
-    return {group: {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in sample[group].items()} for group in ('sensor', 'targets')}
+def _device_batch(sample, device, non_blocking=False):
+    return {group: {k: (v.to(device, non_blocking=non_blocking) if isinstance(v, torch.Tensor) else v) for k, v in sample[group].items()} for group in ('sensor', 'targets')}
 
 
 def _target_from_annotation(sensor, annotation, max_gap_s, common=False):
@@ -121,7 +122,8 @@ class _TokenWindows(Dataset):
         expected = {'U_base':'C_base', 'U_kin':'C_kin'}[condition]
         if self.tokens.metadata.get('condition') != expected or self.tokens.metadata.get('representation') != 'exact_U':
             raise ValueError('foreign probe token condition or non-final representation')
-        self.lookup = {row['window_id']:i for i,row in enumerate(self.tokens.rows)}
+        from eksperimen_model.datasets.m4human_dataset import UIDIndex
+        self.lookup = UIDIndex(self.tokens.rows,'window_id')
     def __len__(self):
         return len(self.source)
     def __getitem__(self, index):
@@ -266,11 +268,13 @@ def _numbers(value):
     return value
 
 
-def _validate(model, stage, condition, loader, device, stats, config):
+def _validate(model, stage, condition, loader, device, stats, config, collect_records=True, resource_monitor=None):
     model.eval(); records = []; numerator = {}; denominator = {}
     with torch.no_grad():
         for batch in loader:
-            values = _device_batch(batch, device)
+            if resource_monitor is not None:
+                resource_monitor.check()
+            values = _device_batch(batch, device, config.get('non_blocking', False))
             _, terms, prediction = _forward(model, stage, condition, values['sensor'], values['targets'], stats, config)
             for name in ('L_p_joint', 'L_p_root', 'L_v_joint', 'L_v_root', 'L_fidelity'):
                 if name not in terms:
@@ -278,6 +282,8 @@ def _validate(model, stage, condition, loader, device, stats, config):
                 count = terms['fidelity_count'] if name == 'L_fidelity' else terms['counts'][name[2:]]
                 numerator[name] = numerator.get(name, 0.) + float(terms[name]) * int(count)
                 denominator[name] = denominator.get(name, 0) + int(count)
+            if not collect_records:
+                continue
             for i, row in enumerate(batch['provenance']):
                 metrics = physical_metrics({k:v[i] for k,v in prediction.items()}, {k:v[i] for k,v in values['targets'].items()}, pelvis_index=config['pelvis_index'])
                 pred = {k:v[i].detach().cpu().numpy() for k,v in prediction.items()}
@@ -309,9 +315,11 @@ def _validate(model, stage, condition, loader, device, stats, config):
     return {'selection':selection, 'losses':means, 'numerators':numerator, 'counts':denominator}, records
 
 
-def _logical_batches(loader, accumulation):
+def _logical_batches(loader, accumulation, resource_monitor=None):
     batches = []
     for batch in loader:
+        if resource_monitor is not None:
+            resource_monitor.check()
         batches.append(batch)
         if len(batches) == accumulation:
             yield batches
@@ -334,13 +342,56 @@ def _component_counts(batch, stage, pelvis):
     return counts
 
 
+def _logical_training_step(model, stage, condition, logical, stats, config, device, optimizer, scaler, gradient_norms=None):
+    """Replay the same logical batch on AMP overflow; successful exposure stays paired."""
+    per_micro = [_component_counts(batch, stage, config['pelvis_index']) for batch in logical]
+    totals = {name: sum(c[name] for c in per_micro) for name in per_micro[0]}
+    if not sum(totals.values()):
+        return None
+    retries = config.get('amp_max_retries', 8)
+    if type(retries) is not int or retries < 0:
+        raise ValueError('amp_max_retries must be a nonnegative integer')
+    replay_rng = rng_state() if scaler.is_enabled() else None
+    groups = None
+    if stage == 'C':
+        groups = [(list(model['compressor'].parameters()) + list(model['fidelity'].parameters()), 1.),
+                  (list(model['auxiliary'].parameters()), 1.)]
+    for attempt in range(retries + 1):
+        if attempt:
+            restore_rng_state(replay_rng)
+        optimizer.zero_grad(set_to_none=True)
+        objective = 0.
+        numerators = {name: 0. for name in totals}
+        for batch, counts in zip(logical, per_micro):
+            values = _device_batch(batch, device, config.get('non_blocking', False))
+            with torch.autocast(device.type, dtype=torch.float16, enabled=scaler.is_enabled()):
+                _, terms, _ = _forward(model, stage, condition, values['sensor'], values['targets'], stats, config)
+            physical = sum(terms['L_' + name] * counts[name] / max(1, totals[name]) * weight
+                           for name, weight in [('p_joint', 1.), ('p_root', 1.), ('v_joint', .25), ('v_root', .25)])
+            loss = physical if stage != 'C' else config['lambda_aux'] * physical + terms['L_fidelity'] * counts['fidelity'] / max(1, totals['fidelity'])
+            if not torch.isfinite(loss):
+                raise ValueError('non-finite objective; scientific run halted')
+            scaler.scale(loss).backward()
+            objective += float(loss.detach())
+            for name in totals:
+                numerators[name] += float(terms['L_fidelity' if name == 'fidelity' else 'L_' + name].detach()) * counts[name]
+        raw_norms = {}
+        norm, successful = finish_optimizer_step(optimizer, scaler, model.parameters(), 1., clipping_groups=groups, norms_out=raw_norms)
+        if successful:
+            if gradient_norms is not None:
+                names = ('compressor_fidelity','auxiliary') if stage == 'C' else ('model',)
+                gradient_norms.update({name:raw_norms[index] for index,name in enumerate(names)})
+            return objective, numerators, totals, norm, attempt
+    raise ValueError('AMP overflow exceeded same-batch retry budget; use verified stable precision')
+
+
 def _diagnostic_panel(model,stage,condition,datasets,device,stats,config,output):
     arrays = {}; ids = []; model.eval()
     with torch.no_grad():
         for partition,dataset in zip(('train','val'),datasets):
             count = min(len(dataset),config.get('diagnostic_windows',2))
             samples = [dataset[i] for i in range(count)]
-            batch = _collate(samples); values = _device_batch(batch,device)
+            batch = _collate(samples); values = _device_batch(batch,device,config.get('non_blocking',False))
             _,_,prediction = _forward(model,stage,condition,values['sensor'],values['targets'],stats,config)
             for key,value in prediction.items():
                 arrays[f'{partition}_pred_{key}'] = value.cpu().numpy()
@@ -368,150 +419,155 @@ def _recompute_metrics(records,output):
 
 def train(config_path, stage, condition=None, resume=None):
     config = yaml.safe_load(Path(config_path).read_text())
-    metadata = read_json(Path(config['source_cache']) / 'metadata.json')
-    _scientific_gate(config, metadata)
-    if stage == 'C' and condition not in ('C_base','C_kin'):
-        raise ValueError('C condition must be explicit')
-    if stage == 'probe' and condition not in ('M','U_base','U_kin'):
-        raise ValueError('fresh probe source must be explicit')
-    seed_everything(config['seed'])
-    train_set, val_set = _datasets(config, stage)
-    if stage == 'probe' and condition != 'M':
-        train_set = _TokenWindows(train_set,config['token_cache'],config['lineage'],condition)
-        val_set = _TokenWindows(val_set,config['token_cache'],config['lineage'],condition)
-        if any(dataset.tokens.metadata.get('K') != config['K'] for dataset in (train_set,val_set)):
-            raise ValueError('probe token budget differs from locked config')
-    stats = _fit_statistics(train_set, stage, config['pelvis_index'])
-    if stage != 'M':
-        physical_stats = read_json(config['normalizer_path'])
-        if physical_stats.get('hash') != canonical_hash({k:v for k,v in physical_stats.items() if k!='hash'}):
-            raise ValueError('physical normalizer content/hash mismatch')
-        if metadata['lineage'].get('normalizer_hash') != physical_stats['hash']:
-            raise ValueError('foreign physical scales for common motion cache')
-        for key in ('s_v_joint', 's_v_root'):
-            stats[key] = physical_stats[key]
-        stats['physical_normalizer_hash'] = physical_stats['hash']
-        stats['hash'] = canonical_hash({k:v for k,v in stats.items() if k != 'hash'})
-    device = torch.device(config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
-    amp = config['precision'] == 'fp16_amp'
-    if amp and (device.type != 'cuda' or not config.get('precision_gate_passed')):
-        raise ValueError('fp16 AMP requires CUDA and passed numeric gate')
-    model = _models(stage, stats, config).to(device)
-    initialization_hash = state_dict_hash(model)
-    if stage in ('C', 'probe'):
-        paired = {k:v for k,v in config.items() if k not in ('output_dir','parent_run_id','token_cache')}
-        paired.update(initialization_hash=initialization_hash,normalizer_hash=stats['hash'],sample_order='seeded_epoch_permutation',
-                      selection='minimum_validation_full_H_fidelity_earliest' if stage == 'C' else 'minimum_physical_objective_earliest',
-                      source_cache_hash=canonical_hash(metadata),
-                      train_cohort_hash=canonical_hash([train_set[i]['provenance']['window_id'] for i in range(len(train_set))]),
-                      validation_cohort_hash=canonical_hash([val_set[i]['provenance']['window_id'] for i in range(len(val_set))]))
-        paired_path = Path(config['paired_contract_path'])
-        if paired_path.exists():
-            if read_json(paired_path) != paired:
-                raise ValueError('paired initialization, support, or training budget mismatch')
-        else:
-            atomic_json(paired_path,paired)
-    optimizer = torch.optim.AdamW(adamw_parameters(model), lr=config['learning_rate'])
-    total = int(config['successful_updates']); accumulation = int(config['accumulation'])
-    if total <= 0 or accumulation <= 0:
-        raise ValueError('positive update and accumulation budgets required')
-    scheduler = _scheduler(optimizer, total)
-    scaler = torch.amp.GradScaler('cuda', enabled=amp)
-    output = Path(config['output_dir']) / (condition or 'M')
-    logger = RunLogger(output, config, stage)
-    lineage = {**config['lineage'], 'source_cache_hash': canonical_hash(metadata), 'stage_normalizer_hash':stats['hash'], 'initialization_hash':initialization_hash, 'condition':condition or 'M', 'K':config.get('K'),
-               'training_config_hash':canonical_hash({k:v for k,v in config.items() if k not in ('output_dir','parent_run_id')})}
-    lineage = {k:v for k,v in lineage.items() if v is not None}
-    if stage == 'probe' and condition != 'M':
-        lineage['token_cache_hash'] = canonical_hash(read_json(Path(config['token_cache'])/'metadata.json'))
-    atomic_json(output / 'normalizers.json', stats)
-    logged_lineage = read_json(output / 'lineage.json')
-    logged_lineage['lineage'] = lineage
-    atomic_json(output / 'lineage.json', logged_lineage, overwrite=True)
-    successful = 0; skipped = 0; epoch = 0; best = float('inf')
-    generator = torch.Generator().manual_seed(config['seed'])
-    if resume:
-        saved = load_checkpoint(resume, model, lineage)
-        optimizer.load_state_dict(saved['optimizer']); scheduler.load_state_dict(saved['scheduler']); scaler.load_state_dict(saved['scaler'])
-        successful, skipped, epoch, best = (saved[k] for k in ('successful_updates','skipped_updates','epoch','best'))
-        if not saved.get('epoch_complete') and successful < total:
-            raise ValueError('Only epoch-boundary resume is supported')
-        generator.set_state(saved['sampler_rng']); restore_rng_state(saved['rng_state'])
-        for name in ('best.pt','last.pt','predictions_val.jsonl','diagnostic_samples.npz','diagnostic_samples.json','metric_recomputation.json'):
-            shutil.copyfile(Path(resume).parent/name, output/name)
-        logger.log('history',parent_checkpoint=str(resume),epoch=epoch,successful_updates=successful,event_detail='resume')
-    train_loader = DataLoader(train_set, batch_size=config['micro_batch'], shuffle=True, generator=generator, num_workers=0, collate_fn=_collate)
-    val_loader = DataLoader(val_set, batch_size=config['micro_batch'], shuffle=False, num_workers=0, collate_fn=_collate)
-    start = time.monotonic()
-    epoch_complete = True
-    def checkpoint(name):
-        save_checkpoint(output / name, model, lineage, stats=stats, stage=stage, condition=condition, K=config.get('K'), config=config,
-                        optimizer=optimizer.state_dict(), scheduler=scheduler.state_dict(), scaler=scaler.state_dict(),
-                        successful_updates=successful, skipped_updates=skipped, epoch=epoch, best=best,
-                        sampler_rng=generator.get_state(),rng_state=rng_state(),epoch_complete=epoch_complete)
+    logger = None
     try:
-        while successful < total:
-            model.train(); optimizer.zero_grad(set_to_none=True); pending = 0; epoch += 1
-            epoch_start_updates = successful
-            logical_count = math.ceil(len(train_loader)/accumulation)
-            for logical_index, logical in enumerate(_logical_batches(train_loader,accumulation)):
-                if successful >= total:
-                    break
-                per_micro = [_component_counts(batch,stage,config['pelvis_index']) for batch in logical]
-                totals = {name:sum(c[name] for c in per_micro) for name in per_micro[0]}
-                if not sum(totals.values()):
-                    logger.log('empty_objective',epoch=epoch,source_ids=[r['window_id'] for batch in logical for r in batch['provenance']])
-                    continue
-                objective_value = 0.; group_numerators = {name:0. for name in totals}
-                for batch,counts in zip(logical,per_micro):
-                    values = _device_batch(batch,device)
-                    with torch.autocast(device.type,dtype=torch.float16,enabled=amp):
-                        _,terms,_ = _forward(model,stage,condition,values['sensor'],values['targets'],stats,config)
-                    physical = sum(terms['L_'+name] * counts[name] / max(1,totals[name]) * weight
-                                   for name,weight in [('p_joint',1.),('p_root',1.),('v_joint',.25),('v_root',.25)])
-                    loss = physical if stage!='C' else config['lambda_aux']*physical + terms['L_fidelity']*counts['fidelity']/max(1,totals['fidelity'])
-                    if not torch.isfinite(loss):
-                        raise ValueError('non-finite objective; scientific run halted')
-                    scaler.scale(loss).backward(); objective_value += float(loss.detach())
-                    for name in totals:
-                        group_numerators[name] += float(terms['L_fidelity' if name=='fidelity' else 'L_'+name].detach())*counts[name]
-                scaler.unscale_(optimizer)
-                norms = clip_compression_gradients(model['compressor'],model['fidelity'],model['auxiliary']) if stage=='C' else {'model':float(nn.utils.clip_grad_norm_(model.parameters(),1.,error_if_nonfinite=True))}
-                old_scale = scaler.get_scale(); scaler.step(optimizer); scaler.update()
-                if scaler.get_scale() < old_scale:
-                    skipped += 1
-                    raise ValueError('AMP overflow breaks fixed successful exposure; rerun pair after numeric gate')
-                successful += 1; scheduler.step(); optimizer.zero_grad(set_to_none=True)
-                epoch_complete = logical_index + 1 == logical_count
-                logger.log('update',epoch=epoch,update=successful,skipped_updates=skipped,loss=objective_value,
-                           terms={name:group_numerators[name]/totals[name] if totals[name] else None for name in totals},
-                           numerators=group_numerators,counts=totals,reduction='component_weighted_logical_batch',
-                           gradient_norm_before=norms,gradient_norm_after={k:min(v,1.) for k,v in norms.items()},
-                           learning_rate=scheduler.get_last_lr(),source_ids=[r['window_id'] for batch in logical for r in batch['provenance']],
-                           exposed_windows=sum(len(batch['provenance']) for batch in logical),elapsed_s=time.monotonic()-start)
-            if successful == epoch_start_updates:
-                raise ValueError('entire training epoch has no eligible objective')
-            result, records = _validate(model,stage,condition,val_loader,device,stats,config)
-            logger.log('validation',epoch=epoch,update=successful,**result)
-            train_panel_loader = DataLoader(torch.utils.data.Subset(train_set,range(min(len(train_set),config.get('diagnostic_windows',2)))),batch_size=config['micro_batch'],collate_fn=_collate)
-            train_result,_ = _validate(model,stage,condition,train_panel_loader,device,stats,config)
-            logger.log('validation',partition='fixed_train_diagnostic',epoch=epoch,update=successful,**train_result)
-            if result['selection'] < best:
-                best = result['selection']; checkpoint('best.pt')
-                with (output/'predictions_val.jsonl').open('w') as stream:
-                    for row in records:
-                        row.update(split='val',checkpoint_hash=file_sha256(output/'best.pt'),source_hash=canonical_hash(metadata),window_support_hash=row.pop('sensor_support_hash'))
-                        stream.write(json.dumps(row,allow_nan=False)+'\n')
-                _diagnostic_panel(model,stage,condition,(train_set,val_set),device,stats,config,output)
-                _recompute_metrics(records,output)
-                logger.log('checkpoint_selection',metric='minimum_normalized_full_H_fidelity' if stage=='C' else 'physical_validation_objective',tie_break='earliest',value=best,checkpoint='best.pt')
-            checkpoint('last.pt')
-        return logger.finish({'successful_updates':successful,'skipped_updates':skipped,'best_validation':best,
-                       'validation_physical':read_json(output/'metric_recomputation.json')['metrics'],
-                       'data_kind':config['data_kind'],'initialization_hash':initialization_hash,'condition':condition,'K':config.get('K')})
-    except Exception as exc:
-        logger.fail(exc); raise
-
+        with ResourceMonitor(config, config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')) as monitor:
+            metadata = read_json(Path(config['source_cache']) / 'metadata.json')
+            _scientific_gate(config, metadata)
+            if stage == 'C' and condition not in ('C_base','C_kin'):
+                raise ValueError('C condition must be explicit')
+            if stage == 'probe' and condition not in ('M','U_base','U_kin'):
+                raise ValueError('fresh probe source must be explicit')
+            seed_everything(config['seed'])
+            train_set, val_set = _datasets(config, stage)
+            if stage == 'probe' and condition != 'M':
+                train_set = _TokenWindows(train_set,config['token_cache'],config['lineage'],condition)
+                val_set = _TokenWindows(val_set,config['token_cache'],config['lineage'],condition)
+                if any(dataset.tokens.metadata.get('K') != config['K'] for dataset in (train_set,val_set)):
+                    raise ValueError('probe token budget differs from locked config')
+            monitor.check()
+            stats = _fit_statistics(train_set, stage, config['pelvis_index'])
+            if stage != 'M':
+                physical_stats = read_json(config['normalizer_path'])
+                if physical_stats.get('hash') != canonical_hash({k:v for k,v in physical_stats.items() if k!='hash'}):
+                    raise ValueError('physical normalizer content/hash mismatch')
+                if metadata['lineage'].get('normalizer_hash') != physical_stats['hash']:
+                    raise ValueError('foreign physical scales for common motion cache')
+                for key in ('s_v_joint', 's_v_root'):
+                    stats[key] = physical_stats[key]
+                stats['physical_normalizer_hash'] = physical_stats['hash']
+                stats['hash'] = canonical_hash({k:v for k,v in stats.items() if k != 'hash'})
+            device = torch.device(config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
+            configure_runtime(config, device)
+            amp = config['precision'] == 'fp16_amp'
+            if amp and (device.type != 'cuda' or not config.get('precision_gate_passed')):
+                raise ValueError('fp16 AMP requires CUDA and passed numeric gate')
+            model = _models(stage, stats, config).to(device)
+            initialization_hash = state_dict_hash(model)
+            if stage in ('C', 'probe'):
+                paired = {k:v for k,v in config.items() if k not in ('output_dir','parent_run_id','token_cache')}
+                paired.update(initialization_hash=initialization_hash,normalizer_hash=stats['hash'],sample_order='seeded_epoch_permutation',
+                              selection='minimum_validation_full_H_fidelity_earliest' if stage == 'C' else 'minimum_physical_objective_earliest',
+                              source_cache_hash=canonical_hash(metadata),
+                              train_cohort_hash=canonical_hash([train_set[i]['provenance']['window_id'] for i in range(len(train_set))]),
+                              validation_cohort_hash=canonical_hash([val_set[i]['provenance']['window_id'] for i in range(len(val_set))]))
+                paired_path = Path(config['paired_contract_path'])
+                if paired_path.exists():
+                    if read_json(paired_path) != paired:
+                        raise ValueError('paired initialization, support, or training budget mismatch')
+                else:
+                    atomic_json(paired_path,paired)
+            optimizer = torch.optim.AdamW(adamw_parameters(model), lr=config['learning_rate'])
+            total = int(config['successful_updates']); accumulation = int(config['accumulation'])
+            if total <= 0 or accumulation <= 0:
+                raise ValueError('positive update and accumulation budgets required')
+            scheduler = _scheduler(optimizer, total)
+            scaler = torch.amp.GradScaler('cuda', enabled=amp)
+            output = Path(config['output_dir']) / (condition or 'M')
+            logger = RunLogger(output, config, stage)
+            lineage = {**config['lineage'], 'source_cache_hash': canonical_hash(metadata), 'stage_normalizer_hash':stats['hash'], 'initialization_hash':initialization_hash, 'condition':condition or 'M', 'K':config.get('K'),
+                       'training_config_hash':canonical_hash({k:v for k,v in config.items() if k not in ('output_dir','parent_run_id')})}
+            lineage = {k:v for k,v in lineage.items() if v is not None}
+            if stage == 'probe' and condition != 'M':
+                lineage['token_cache_hash'] = canonical_hash(read_json(Path(config['token_cache'])/'metadata.json'))
+            atomic_json(output / 'normalizers.json', stats)
+            logged_lineage = read_json(output / 'lineage.json')
+            logged_lineage['lineage'] = lineage
+            atomic_json(output / 'lineage.json', logged_lineage, overwrite=True)
+            successful = 0; skipped = 0; epoch = 0; best = float('inf')
+            generator = torch.Generator().manual_seed(config['seed'])
+            if resume:
+                saved = load_checkpoint(resume, model, lineage)
+                optimizer.load_state_dict(saved['optimizer']); scheduler.load_state_dict(saved['scheduler']); scaler.load_state_dict(saved['scaler'])
+                successful, skipped, epoch, best = (saved[k] for k in ('successful_updates','skipped_updates','epoch','best'))
+                if not saved.get('epoch_complete') and successful < total:
+                    raise ValueError('Only epoch-boundary resume is supported')
+                generator.set_state(saved['sampler_rng']); restore_rng_state(saved['rng_state'])
+                for name in ('best.pt','last.pt','predictions_val.jsonl','diagnostic_samples.npz','diagnostic_samples.json','metric_recomputation.json'):
+                    shutil.copyfile(Path(resume).parent/name, output/name)
+                logger.log('history',parent_checkpoint=str(resume),epoch=epoch,successful_updates=successful,event_detail='resume')
+            train_loader = make_loader(train_set, config['micro_batch'], config, device, shuffle=True, generator=generator, collate_fn=_collate)
+            val_loader = make_loader(val_set, config.get('eval_batch_size', config['micro_batch']), config, device, collate_fn=_collate)
+            start = time.monotonic()
+            epoch_complete = True
+            def checkpoint(name):
+                save_checkpoint(output / name, model, lineage, stats=stats, stage=stage, condition=condition, K=config.get('K'), config=config,
+                                optimizer=optimizer.state_dict(), scheduler=scheduler.state_dict(), scaler=scaler.state_dict(),
+                                successful_updates=successful, skipped_updates=skipped, epoch=epoch, best=best,
+                                sampler_rng=generator.get_state(),rng_state=rng_state(),epoch_complete=epoch_complete)
+            while successful < total:
+                model.train(); optimizer.zero_grad(set_to_none=True); pending = 0; epoch += 1
+                epoch_start_updates = successful
+                logical_count = math.ceil(len(train_loader)/accumulation)
+                for logical_index, logical in enumerate(_logical_batches(train_loader,accumulation,monitor)):
+                    monitor.check()
+                    if successful >= total:
+                        break
+                    norms = {}
+                    result = _logical_training_step(model, stage, condition, logical, stats, config, device, optimizer, scaler, gradient_norms=norms)
+                    monitor.check()
+                    if result is None:
+                        logger.log('empty_objective',epoch=epoch,source_ids=[r['window_id'] for batch in logical for r in batch['provenance']])
+                        continue
+                    objective_value, group_numerators, totals, norm, overflow_retries = result
+                    skipped += overflow_retries
+                    if overflow_retries:
+                        logger.log('overflow_retry', epoch=epoch, attempts=overflow_retries, scale=scaler.get_scale(),
+                                   successful_updates=successful, source_ids=[r['window_id'] for batch in logical for r in batch['provenance']],
+                                   policy='same_logical_batch_rng_replay')
+                    successful += 1; scheduler.step(); optimizer.zero_grad(set_to_none=True)
+                    epoch_complete = logical_index + 1 == logical_count
+                    logger.log('update',epoch=epoch,update=successful,skipped_updates=skipped,loss=objective_value,
+                               terms={name:group_numerators[name]/totals[name] if totals[name] else None for name in totals},
+                               numerators=group_numerators,counts=totals,reduction='component_weighted_logical_batch',
+                               gradient_norm_before=norms,gradient_norm_after={k:min(v,1.) for k,v in norms.items()},
+                               learning_rate=scheduler.get_last_lr(),source_ids=[r['window_id'] for batch in logical for r in batch['provenance']],
+                               exposed_windows=sum(len(batch['provenance']) for batch in logical),elapsed_s=time.monotonic()-start)
+                else:
+                    # Empty objectives still consume sampler batches. Natural
+                    # exhaustion is an epoch boundary even if its last batch skips.
+                    epoch_complete = True
+                if successful == epoch_start_updates:
+                    raise ValueError('entire training epoch has no eligible objective')
+                monitor.check()
+                result, _ = _validate(model,stage,condition,val_loader,device,stats,config,collect_records=False,resource_monitor=monitor)
+                monitor.check()
+                logger.log('validation',epoch=epoch,update=successful,**result)
+                train_panel_loader = DataLoader(torch.utils.data.Subset(train_set,range(min(len(train_set),config.get('diagnostic_windows',2)))),batch_size=config['micro_batch'],collate_fn=_collate)
+                train_result,_ = _validate(model,stage,condition,train_panel_loader,device,stats,config,collect_records=False,resource_monitor=monitor)
+                logger.log('validation',partition='fixed_train_diagnostic',epoch=epoch,update=successful,**train_result)
+                if result['selection'] < best:
+                    best = result['selection']; checkpoint('best.pt')
+                    _, records = _validate(model,stage,condition,val_loader,device,stats,config,resource_monitor=monitor)
+                    selected_checkpoint_hash = file_sha256(output/'best.pt')
+                    with (output/'predictions_val.jsonl').open('w') as stream:
+                        for row in records:
+                            row.update(split='val',checkpoint_hash=selected_checkpoint_hash,source_hash=canonical_hash(metadata),window_support_hash=row.pop('sensor_support_hash'))
+                            stream.write(json.dumps(row,allow_nan=False)+'\n')
+                    _diagnostic_panel(model,stage,condition,(train_set,val_set),device,stats,config,output)
+                    _recompute_metrics(records,output)
+                    logger.log('checkpoint_selection',metric='minimum_normalized_full_H_fidelity' if stage=='C' else 'physical_validation_objective',tie_break='earliest',value=best,checkpoint='best.pt')
+                monitor.check()
+                checkpoint('last.pt')
+            summary = {'successful_updates':successful,'skipped_updates':skipped,'best_validation':best,
+                           'validation_physical':read_json(output/'metric_recomputation.json')['metrics'],
+                           'data_kind':config['data_kind'],'initialization_hash':initialization_hash,'condition':condition,'K':config.get('K')}
+        summary['resource_safety'] = monitor.snapshot()
+        return logger.finish(summary)
+    except Exception as error:
+        if logger is not None and not logger.closed:
+            logger.fail(error)
+        raise
 
 def train_cli(stage):
     parser = argparse.ArgumentParser(description=f'M4Human {stage} training; audit-gated real data only')
@@ -525,13 +581,15 @@ def train_cli(stage):
 
 def extract_motion(config_path, checkpoint_path, output_dir, split=None):
     config = yaml.safe_load(Path(config_path).read_text())
+    device = torch.device(config.get('device','cpu'))
+    configure_runtime(config,device)
     metadata = read_json(Path(config['source_cache'])/'metadata.json')
     _scientific_gate(config, metadata)
     payload = torch.load(checkpoint_path,map_location='cpu',weights_only=True)
     if payload.get('stage') != 'M':
         raise ValueError('motion extraction requires a selected common M checkpoint')
     model = _models('M',payload['stats'],config)
-    load_checkpoint(checkpoint_path,model,config['lineage']); freeze(model)
+    load_checkpoint(checkpoint_path,model,config['lineage']); freeze(model); model.to(device)
     from eksperimen_model.datasets.m4human_state_dataset import EncodedStateWindowDataset
     source = EncodedStateWindowDataset(config['source_cache'],length=32,stride=config.get('extraction_stride',8),split=split,targets_dir=config.get('target_cache'),allow_debug=config['data_kind']=='synthetic')
     lineage = {**config['lineage'], 'motion_hash':state_dict_hash(model['motion']), 'motion_checkpoint_hash':file_sha256(checkpoint_path),
@@ -541,21 +599,23 @@ def extract_motion(config_path, checkpoint_path, output_dir, split=None):
     (root/'tensors').mkdir(); (root/'targets').mkdir()
     atomic_json(root/'metadata.json',{'contract_version':CONTRACT_VERSION,'complete':False,'data_kind':metadata['data_kind'],'lineage':lineage,'representation':'full_H'})
     count = 0
+    loader = make_loader(source,config.get('eval_batch_size',4),config,device,collate_fn=_collate)
     with (root/'index.jsonl').open('w') as index:
-        for sample in source:
-            sensor = sample['sensor']
-            with torch.no_grad():
-                result = model['motion']({k:v.unsqueeze(0) for k,v in sensor.items()}, {k:v.unsqueeze(0) for k,v in sensor.items()}, sensor['time_s'].unsqueeze(0))
-            cached = {k:v.detach().cpu().clone() for k,v in sensor.items()}
-            cached.update({k:v[0].detach().cpu().clone() for k,v in result.items()})
-            path = root/'tensors'/f'{count:08d}.pt'; torch.save(cached,path)
-            row = {**sample['provenance'],'tensor_path':str(path.relative_to(root)),'tensor_sha256':file_sha256(path),
-                   'window_support_hash':canonical_hash(sample['provenance']),'motion_hash':lineage['motion_hash']}
-            if sample['targets']:
-                target = _target_from_annotation(cached,sample['targets'],config['max_gap_s'],common=True)
-                target_path = root/'targets'/f'{count:08d}.pt'; torch.save(target,target_path)
-                row.update(target_path=str(target_path.relative_to(root)),target_sha256=file_sha256(target_path))
-            index.write(json.dumps(row,allow_nan=False)+'\n'); index.flush(); count += 1
+        for batch in loader:
+            sensor = {k:v.to(device,non_blocking=config.get('non_blocking',True)) for k,v in batch['sensor'].items()}
+            with torch.inference_mode(), torch.autocast(device_type=device.type,enabled=device.type=='cuda' and config.get('precision','fp32')!='fp32',dtype=torch.bfloat16 if config.get('precision')=='bf16' else torch.float16):
+                result = model['motion'](sensor,sensor,sensor['time_s'])
+            for i, provenance in enumerate(batch['provenance']):
+                cached = {k:v[i].detach().cpu().clone() for k,v in batch['sensor'].items()}
+                cached.update({k:v[i].detach().cpu().clone() for k,v in result.items()})
+                path = root/'tensors'/f'{count:08d}.pt'; torch.save(cached,path)
+                row = {**provenance,'tensor_path':str(path.relative_to(root)),'tensor_sha256':file_sha256(path),
+                       'window_support_hash':canonical_hash(provenance),'motion_hash':lineage['motion_hash']}
+                if batch['targets']:
+                    target = _target_from_annotation(cached,{k:v[i] for k,v in batch['targets'].items()},config['max_gap_s'],common=True)
+                    target_path = root/'targets'/f'{count:08d}.pt'; torch.save(target,target_path)
+                    row.update(target_path=str(target_path.relative_to(root)),target_sha256=file_sha256(target_path))
+                index.write(json.dumps(row,allow_nan=False)+'\n'); index.flush(); count += 1
     if not count:
         raise ValueError('no eligible exact windows for motion extraction')
     atomic_json(root/'metadata.json',{'contract_version':CONTRACT_VERSION,'complete':True,'data_kind':metadata['data_kind'],'scientific_eligible':metadata.get('scientific_eligible',False),'lineage':lineage,'representation':'full_H',
@@ -564,13 +624,15 @@ def extract_motion(config_path, checkpoint_path, output_dir, split=None):
 
 def extract_tokens(config_path, checkpoint_path, output_dir, split=None):
     config = yaml.safe_load(Path(config_path).read_text())
+    device = torch.device(config.get('device','cpu'))
+    configure_runtime(config,device)
     source = WindowTensorCache(config['source_cache'],split,config['lineage'])
     _scientific_gate(config,source.metadata)
     payload = torch.load(checkpoint_path,map_location='cpu',weights_only=True)
     if payload.get('stage') != 'C' or payload.get('condition') not in ('C_base','C_kin') or payload.get('K') != config['K']:
         raise ValueError('foreign stage/condition/budget for exact U extraction')
     model = _models('C',payload['stats'],config)
-    load_checkpoint(checkpoint_path,model,config['lineage']); freeze(model)
+    load_checkpoint(checkpoint_path,model,config['lineage']); freeze(model); model.to(device)
     tokenizer_hash = state_dict_hash(model['compressor'])
     lineage = {**source.metadata['lineage'],'tokenizer_hash':tokenizer_hash,'compressor_checkpoint_hash':file_sha256(checkpoint_path),
                'h_cache_hash':canonical_hash(source.metadata),'bin_policy':'floor_k32_K','time_encoding':'actual_relative_nominal_dt_1_over_12'}
@@ -578,18 +640,22 @@ def extract_tokens(config_path, checkpoint_path, output_dir, split=None):
     info = {'contract_version':CONTRACT_VERSION,'complete':False,'data_kind':source.metadata['data_kind'],'lineage':lineage,
             'representation':'exact_U','condition':payload['condition'],'K':config['K'],'scientific_eligible':source.metadata.get('scientific_eligible',False)}
     atomic_json(root/'metadata.json',info)
+    loader = make_loader(source,config.get('eval_batch_size',4),config,device,collate_fn=_collate)
+    count = 0
     with (root/'index.jsonl').open('w') as index:
-        for i in range(len(source)):
-            sample = source[i]; s = sample['sensor']; valid = s['latent_valid'] & s['common_frame_valid'][:,None]
-            with torch.no_grad():
-                out = model['compressor'](make_rich_memory(s['H'].unsqueeze(0)),s['time_s'].unsqueeze(0),valid.unsqueeze(0),config['K'])
-            tensor = {k:v[0].detach().cpu().clone() if v.ndim>1 else v.detach().cpu().clone() for k,v in out.items()}
-            tensor['time_s'] = s['time_s'].clone()
-            path = root/'tensors'/f'{i:08d}.pt'; torch.save(tensor,path)
-            row = {k:v for k,v in sample['provenance'].items() if k not in ('tensor_path','tensor_sha256','target_path','target_sha256')}
-            row.update(tensor_path=str(path.relative_to(root)),tensor_sha256=file_sha256(path),tokenizer_hash=tokenizer_hash,
-                       condition=payload['condition'],K=config['K'],h_cache_hash=lineage['h_cache_hash'])
-            index.write(json.dumps(row,allow_nan=False)+'\n'); index.flush()
+        for batch in loader:
+            s = {k:v.to(device,non_blocking=config.get('non_blocking',True)) for k,v in batch['sensor'].items()}
+            valid = s['latent_valid'] & s['common_frame_valid'][:,:,None]
+            with torch.inference_mode(), torch.autocast(device_type=device.type,enabled=device.type=='cuda' and config.get('precision','fp32')!='fp32',dtype=torch.bfloat16 if config.get('precision')=='bf16' else torch.float16):
+                out = model['compressor'](make_rich_memory(s['H']),s['time_s'],valid,config['K'])
+            for i, provenance in enumerate(batch['provenance']):
+                tensor = {k:(v if k in ('bin_start','bin_end') else v[i]).detach().cpu().clone() for k,v in out.items()}
+                tensor['time_s'] = batch['sensor']['time_s'][i].clone()
+                path = root/'tensors'/f'{count:08d}.pt'; torch.save(tensor,path)
+                row = {k:v for k,v in provenance.items() if k not in ('tensor_path','tensor_sha256','target_path','target_sha256')}
+                row.update(tensor_path=str(path.relative_to(root)),tensor_sha256=file_sha256(path),tokenizer_hash=tokenizer_hash,
+                           condition=payload['condition'],K=config['K'],h_cache_hash=lineage['h_cache_hash'])
+                index.write(json.dumps(row,allow_nan=False)+'\n'); index.flush(); count += 1
     info.update(complete=True,count=len(source),index_sha256=file_sha256(root/'index.jsonl'))
     atomic_json(root/'metadata.json',info,overwrite=True)
 

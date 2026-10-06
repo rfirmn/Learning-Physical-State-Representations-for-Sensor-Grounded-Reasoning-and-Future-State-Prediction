@@ -1,0 +1,136 @@
+{
+  "checks": [
+    {
+      "exit_code": 0,
+      "module": "test_m4human_kinematics_contract",
+      "output": "Matplotlib is building the font cache; this may take a moment.\nPASS: derivative, support, task recipes, losses/metrics, checkpoint and incomplete-run guards (synthetic CPU)\n",
+      "seconds": 14.86599279200891
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_encoder_contract",
+      "output": "/private/tmp/m4human_hardening__mmlxynz/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but not supported on MPS now, device pinned memory won't be used.\n  super().__init__(loader)\n/private/tmp/m4human_hardening__mmlxynz/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but not supported on MPS now, device pinned memory won't be used.\n  super().__init__(loader)\n{\n  \"data_kind\": \"synthetic\",\n  \"status\": \"passed\",\n  \"checks\": [\n    \"bounded_serializers\",\n    \"endianness\",\n    \"safe_keys\",\n    \"immutable_flat_lmdb_spawn\",\n    \"split_context\",\n    \"sampling_permutation\",\n    \"masked_pooling\",\n    \"head_gradients\",\n    \"tiny_overfit\",\n    \"coordinate_units\",\n    \"strict_checkpoint\",\n    \"metric_recomputation\",\n    \"state_windows\",\n    \"exact_source_metadata_keys\",\n    \"interleaved_segments_rejected\",\n    \"spawn_targets_states\",\n    \"persistent_worker_epoch\",\n    \"target_absent_sensor_extraction\",\n    \"encoder_extraction_batch1_batch4_fp32_parity_3e-6\"\n  ],\n  \"parameter_count\": 910466,\n  \"tiny_overfit_loss_initial\": 0.9923661351203918,\n  \"tiny_overfit_loss_final\": 0.6576157212257385,\n  \"synthetic_pipeline\": {\n    \"audit_frames\": 120,\n    \"target_frames\": 120,\n    \"state_anchors\": 37,\n    \"windows\": 1\n  },\n  \"real_data_gates\": \"not_run\"\n}\n",
+      "seconds": 14.131898999970872
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_motion_contract",
+      "output": "PASS synthetic motion/tokenizer/full-H/auxiliary-gradient/separate-clipping contract; real-data gates remain unverified\n",
+      "seconds": 2.887290207960177
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_language_contract",
+      "output": "Starting from v4.46, the `logits` model output will have the same type as the model (except at train time, where it will always be FP32)\nFrom v4.47 onwards, when a model cache is to be returned, `generate` will return a `Cache` instance instead by default (as opposed to the legacy tuple of tuples format). If you want to keep returning the legacy format, please set `return_legacy_cache=True`.\nPinned random tiny Qwen2 architecture: PASS (pretrained checkpoint gate not_run)\nM4Human language contract: PASS (offline tiny LM; actual Qwen gate not_run)\n",
+      "seconds": 3.81030508299591
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_physical_contract",
+      "output": "PASS physical QA/probe provenance, pre-outcome lock, paired row-weighted subject bootstrap\n",
+      "seconds": 1.0044366249931045
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_integration",
+      "output": "PASS synthetic stage M -> exact H -> paired C -> exact U -> fresh M/U probes; artifacts recomputed; extraction batch1/batch4 fp32 tolerance3e-6 passed; real-data gates not_run\n",
+      "seconds": 10.30510245799087
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_performance_contract",
+      "output": "M4Human performance contract checks passed\n",
+      "seconds": 2.8382056250120513
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_gate_artifact_contract",
+      "output": "gate/artifact contract checks passed (synthetic fixtures only)\n",
+      "seconds": 0.9131776250433177
+    },
+    {
+      "exit_code": 0,
+      "module": "test_m4human_training_hardening",
+      "output": "Starting from v4.46, the `logits` model output will have the same type as the model (except at train time, where it will always be FP32)\nFrom v4.47 onwards, when a model cache is to be returned, `generate` will return a `Cache` instance instead by default (as opposed to the legacy tuple of tuples format). If you want to keep returning the legacy format, please set `return_legacy_cache=True`.\nM4Human training hardening: PASS (offline CPU; CUDA/real data not measured)\n",
+      "seconds": 3.2140337500022724
+    }
+  ],
+  "data_kind": "synthetic",
+  "device": "cpu",
+  "finished_utc": "2026-10-06T11:43:13.718731+00:00",
+  "platform": "macOS-26.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "scientific_gates": "not_run",
+  "source_changed_during_checks": false,
+  "source_sha256": {
+    "eksperimen_model/audit_m4human.py": "cbfad41f89a28cecacdcd274c8ea84895f90d74c794bdd48398f3394d33bf4fa",
+    "eksperimen_model/check_m4human_encoder_overfit.py": "1d83b1e51739a8900f4e229ecc24a4bebe13f288d31d2c2114fae22e50060875",
+    "eksperimen_model/configs/m4human_compressor.yaml": "5e0547d722f4b397c581faeefd89bf4ef3d1e07ac09251177f6b7b1586e0beb2",
+    "eksperimen_model/configs/m4human_compressor_rtx3060_candidate.yaml": "90cc96f308015f81b6f9275341efadc698e4db14bd4391fe0a4153af06ab0aa8",
+    "eksperimen_model/configs/m4human_encoder.yaml": "260abbd39aa73278c9568d6d459234a96f64ff60b6f8ad5bb88d00d00cf74eb5",
+    "eksperimen_model/configs/m4human_encoder_rtx3060_candidate.yaml": "763dccbd4bffd4d0cf849450c5317639ce70ca9d59187c3683aafc7f28b1a2c2",
+    "eksperimen_model/configs/m4human_encoder_run.yaml": "6731377e83575b9f346b9ed4f83b171385fdda769a5a0bcbf3a9d57e3d2a67ce",
+    "eksperimen_model/configs/m4human_motion.yaml": "316b79066785e6fad7ae76c5ff94ec9ad5d6cbdf5315d0d9fc2a2a26ab241a9d",
+    "eksperimen_model/configs/m4human_motion_rtx3060_candidate.yaml": "ad5b190502a40784b08fa7607f2585ef7815caf76961c016dd5212d6e97ca9d2",
+    "eksperimen_model/configs/m4human_probes.yaml": "f44acdf69cdba984240e41e502ccfd04563d6253be21b22cb645214364cb2e5d",
+    "eksperimen_model/configs/m4human_probes_rtx3060_candidate.yaml": "147064961330d566aef6512095d2c23c5f2edfd762a8e19875897c2afc74be2d",
+    "eksperimen_model/configs/m4human_projector.yaml": "709d15f39a1023cabbbd83f3f78a2c4cacb5e2def8f67c6db76f77d54af61d27",
+    "eksperimen_model/configs/m4human_projector_rtx3060_candidate.yaml": "35a75dbba57c46945fb5461c196d07b9112f69a44a8acf72176bff59cf740a52",
+    "eksperimen_model/datasets/generate_m4human_qa.py": "ce854df94b8fb270a23757c8faf1fcc70924b60fefaf3c352864537a8cfeff87",
+    "eksperimen_model/datasets/m4human_dataset.py": "5525f118d6993b4f10523249aca58d521a7f9ca993f65ac9c0498d20cd3a12e9",
+    "eksperimen_model/datasets/m4human_qa_dataset.py": "843f5b2437340d914c39bfa26e7b87e8b08bd391823549a05d63d1229ff50801",
+    "eksperimen_model/datasets/m4human_state_dataset.py": "06bbc766c630174050b0780e8ec907fe3eef123bdc157876fe5ad4b66d1edcf9",
+    "eksperimen_model/evaluate_m4human.py": "2ad8876eb158c228f2b15018ef33b58cdb4c84d1791d63ac09d1da749b04be6e",
+    "eksperimen_model/evaluate_m4human_physical.py": "76faf221e584325bd66f80cad9f37a02e05eb8f99d4a30fa507369782ab53b5e",
+    "eksperimen_model/evaluate_m4human_reasoning.py": "af20e846bd254cc97524089fa9092c1c9328d4e65147eda3de12a46d792b3071",
+    "eksperimen_model/export_m4human_targets.py": "13fdfa0eb120fd3bd87e6ec01fb1a5d9fd50929ce9c9c49c564805a10b8cd73e",
+    "eksperimen_model/extract_m4human_motion.py": "a9567b2e9568b6acb20dfccfc8023ddc64c12b9f5269b795e778b1e191f19766",
+    "eksperimen_model/extract_m4human_states.py": "ce0e318feaf7a9933a631262e57c0c2ea74cd4f591ba84543233a980c9921a77",
+    "eksperimen_model/extract_m4human_tokens.py": "8a9922093a91641a03be704aa41f0fa6927fd85bd4a5fa58403d074a8fdebe72",
+    "eksperimen_model/m4human_evaluation.py": "e31382a5cd065ad2264048e97fd9df853bc64970e8e07c598cefc5c5e787a86f",
+    "eksperimen_model/m4human_training.py": "7092a81dec9342d020bd25fd4758670384daadde5e6805025b5ff7c4fac62fd9",
+    "eksperimen_model/models/m4human_encoder.py": "13d8c2df33f1b0c245afeb2b8353d043e22cce0a71939554005f717d75e6d087",
+    "eksperimen_model/models/m4human_motion.py": "8464cb9fce36ebed6422e2d167961e7a7831add26f82720d05abdb9f9e4045f0",
+    "eksperimen_model/models/m4human_projector.py": "55793d571d368817aeaa2d8889b05e1ce5eba15eb06f3b3c8bcea642a5c2610d",
+    "eksperimen_model/models/m4human_readout.py": "67dd17f5d7061140c6bfbca7d249fd0d9bfcfbff459fd829fe95ed1bc2ab9c44",
+    "eksperimen_model/models/m4human_tokenizer.py": "e6a91ace6ebe99e68a1783f4756835fca62bf9831deaff19ca22d5148a01adc1",
+    "eksperimen_model/package_m4human_run.py": "7f7e1af666aaff8d00c003ca5a8b74f112815ab5ee75918dccd11a31d1b433bb",
+    "eksperimen_model/profile_m4human_encoder.py": "0bcabfedead213d783f5037228e42d9b06c686a3126026c64f091a198364afa7",
+    "eksperimen_model/test_m4human_encoder_contract.py": "c7578d6e9dc3510553f54b4b996422b648e0007576010475dd91069a0fe6e0c9",
+    "eksperimen_model/test_m4human_gate_artifact_contract.py": "492be0a7a1dc0819b0c3d3ad55cf3f0380def5a55cbb78a11c6b23217073bb71",
+    "eksperimen_model/test_m4human_integration.py": "591598e02eee6e3ca41fa1eb8bcef787c7b31d7525e4a24f1d5fcebeda199f15",
+    "eksperimen_model/test_m4human_kinematics_contract.py": "455997d2e7bbd81c4afc5d8ca72abb02b6c65c4896623592e3ecbd6feb872d55",
+    "eksperimen_model/test_m4human_language_contract.py": "d113e974aab7a6d73a10f7e22acbae0deb1b88e2c28bb84c0e9cde6b4c9e93c0",
+    "eksperimen_model/test_m4human_motion_contract.py": "6d2d1ba18aed78edc8ee64d8123457c933f1958c99b2702fbbe581d9dbe2d005",
+    "eksperimen_model/test_m4human_performance_contract.py": "0237acba8992e31f81b605a588a1e73c22277e600d7df8d86860e328fbc3b8e9",
+    "eksperimen_model/test_m4human_physical_contract.py": "ada411c9c027e186666be13781a1e93a8652bf496877c5ca15d1f1755bf34600",
+    "eksperimen_model/test_m4human_pipeline.py": "1e859a6b37f50a1c42e38a3e333189ce9087a6aa796d578e7d6a2ea95990f56a",
+    "eksperimen_model/test_m4human_training_hardening.py": "0244375642c347764fb483b6dd2e1cfc8a95644a42d9cc12bb9c89c374794360",
+    "eksperimen_model/train_m4human_compressor.py": "df484f9a979f5fb734cb8d84667c14690424f728c138ec17901710f3c046363e",
+    "eksperimen_model/train_m4human_encoder.py": "6ba6ab6cab65e694823af3c43f955ef211c805378dcea4112243dc78e37ad732",
+    "eksperimen_model/train_m4human_motion.py": "356ce1bb7d9eefba268bc505fbbafb6e13221b38d62ba04bbe479ba94320069c",
+    "eksperimen_model/train_m4human_probes.py": "325574bae681c0c870ee858866b5b93f3f1acfa0b555abc840e4e6618617744a",
+    "eksperimen_model/train_m4human_projector.py": "354aed01a0e606c4c10aa93de3a459000c7924f6952778dcc2c1d3f0ca68cd7b",
+    "eksperimen_model/utils/__init__.py": "9cbecc9c8e569b1c2fccdadd30d84a07efce09b3bf53583abeda58aeb3df6dc1",
+    "eksperimen_model/utils/m4human_gates.py": "00f5325aea21fc2109dcb0e3dcc09ae38616348896fb390022e8b345b39b01b9",
+    "eksperimen_model/utils/m4human_kinematics.py": "ec42e1b670703decbe295541c1d5606510e13d981bb2fdf0f87ca01c5939c383",
+    "eksperimen_model/utils/m4human_performance.py": "7bd198ea6bc681b3e0ecceaf38bc72ea8170c0bd00462bd58d7251a22427c072",
+    "eksperimen_model/utils/m4human_runtime.py": "1637595fc1696cfef89c20f6ba4af24e3224a67e6226ee3a17c30cb42a43b5f0",
+    "eksperimen_model/validate_m4human_run.py": "2c85904de88d802f580f05ab82334fac63de665bf5fb46953e831804569f5c4a",
+    "requirements-m4human.txt": "8d5159e9a2c9f41acd31400717264721ae9d08ec7439f9d6cddf2e21367b5cea"
+  },
+  "started_utc": "2026-10-06T11:42:19.723930+00:00",
+  "status": "passed",
+  "versions": {
+    "accelerate": "1.15.0",
+    "lmdb": "2.3.0",
+    "matplotlib": "3.11.2",
+    "msgpack": "1.2.3",
+    "numpy": "2.5.3",
+    "pyyaml": "6.0.3",
+    "scipy": "1.18.1",
+    "smplx": "0.1.28",
+    "torch": "2.14.1",
+    "transformers": "4.45.2"
+  }
+}

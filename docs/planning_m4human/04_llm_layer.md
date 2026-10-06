@@ -1,6 +1,6 @@
 # 04 — Token Akhir, Projector-Only Alignment, dan Frozen LLM
 
-Tanggal revisi: 4 Oktober 2026. Kontrak: **m4human_kinetok_v3**. Status: rencana development/evaluasi, bukan hasil training, akses dataset atau kelayakan GPU yang sudah diverifikasi. [Proposal](../proposal_riset_terbaru.md) menetapkan pertanyaan/kebaruan; [01](01_encoder.md) input sensor; [02](02_dynamic_model.md) motion/tokenizer; [03](03_decoder.md) targets/evidence/readouts; [05](05_evaluasi_testing.md) pengujian dan batas klaim.
+Tanggal revisi: 6 Oktober 2026. Kontrak: **m4human_kinetok_v3**. Status: protokol development/evaluasi dengan implementasi lokal; bukan hasil training nyata, akses dataset atau kelayakan GPU yang sudah diverifikasi. [Proposal](../proposal_riset_terbaru.md) menetapkan pertanyaan/kebaruan; [01](01_encoder.md) input sensor; [02](02_dynamic_model.md) motion/tokenizer; [03](03_decoder.md) targets/evidence/readouts; [05](05_evaluasi_testing.md) pengujian dan batas klaim.
 
 ## 1. Tujuan lapisan bahasa
 
@@ -8,7 +8,7 @@ Lapisan ini menguji apakah **token akhir U yang sudah dibekukan** dapat digunaka
 
 Perbandingan utama adalah **C_base versus C_kin**, dengan 16 token pada kedua kondisi. C_base mempelajari token melalui rekonstruksi seluruh H; C_kin menggunakan mekanisme yang sama dengan tambahan supervisi kinematik yang membaca U. Keduanya memakai encoder, motion backbone, memory kaya, label, arsitektur dan inisialisasi compressor, serta target fidelity yang sama. Perbedaan lokasi supervisi dan jalur gradien dijelaskan di dokumen 02. Baseline tidak boleh digambarkan sebagai sistem tanpa motion atau tanpa supervisi fisik.
 
-**F/T/R/H** masing-masing berarti fakta sumber primer/audit, derivasi berasumsi, keputusan beralasan, dan default/hipotesis belum diuji. Semua nama implementasi lokal di dokumen ini adalah rancangan, bukan library open-source yang telah tersedia.
+**F/T/R/H** masing-masing berarti fakta sumber primer/audit, derivasi berasumsi, keputusan beralasan, dan default/hipotesis belum diuji. Nama implementasi lokal telah dipetakan ke kode proyek; bukan library eksternal atau bukti scientific gates telah lulus.
 
 ### Batas kontribusi
 
@@ -334,7 +334,7 @@ Profil dilakukan pada perangkat eksperimen setelah warm-up dan CUDA synchronizat
 
 ## 12. Gerbang integrasi dan artefak
 
-Nama modul, model, config dan API di atas adalah rencana; belum dibuat atau dilatih oleh revisi dokumentasi. Konsep loop, projector dan QA MM-Fi boleh digunakan ulang setelah audit kompatibilitas, bukan dimensi/checkpoint historisnya. Implementasi kelak memakai .venv/uv dan Pure-PyTorch; sanity check wajib lulus sebelum training panjang.
+Modul lokal, config, projector trainer dan QA evaluator telah dibuat dan diuji dengan fixture. Training ilmiah M4Human/pretrained Qwen belum dilakukan di laptop. Checkpoint historis MM-Fi tidak dipakai sebagai bukti kompatibilitas. Eksekusi memakai .venv/uv dan Pure-PyTorch; sanity check wajib sebelum training panjang.
 
 | Gate | Bukti yang dibutuhkan |
 |---|---|
@@ -352,3 +352,11 @@ Nama modul, model, config dan API di atas adalah rencana; belum dibuat atau dila
 Artefak final disimpan per condition/K/seed: config/lineage, initial/best/last projector, training history, raw validation/test records, metrics, probes, coverage dan resource profile. Inference bundle menunjuk frozen encoder/motion/tokenizer, physical head opsional, projector, Qwen revision, calibration, joint map, normalizers, tasks, recipes, bin policy, prompt, parser dan generation hashes. Jangan menduplikasi bobot Qwen atau menimpa laporan MM-Fi.
 
 Jika pelestarian informasi U membaik tetapi QA tidak, laporkan batas alignment/pemanfaatan. Jika QA membaik tanpa bukti retention, mekanisme pelestarian belum didukung. Jika baseline sudah cukup baik, hipotesis bottleneck tidak terbukti pada scope itu. Kesimpulan mengikuti dokumen 05 dan data, bukan tujuan membuat C_kin selalu menang.
+
+## Pembaruan implementasi — 6 Oktober 2026
+
+Frozen Qwen wrapper, projector-only trainer, QA/generation evaluator dan language test lock tersedia sebagai implementasi lokal; pretrained revision/assets dan real CUDA parity tetap memerlukan perangkat eksperimen. L baseline batch efektif 1×16=16 dipertahankan. Kandidat microbatch/accumulation harus mempunyai produk sama dan setting matched C_base/C_kin.
+
+`llm.attention_backend: sdpa` menggunakan native PyTorch SDPA. `training.activation_checkpointing: true` memakai checkpoint wrapper eksplisit untuk frozen language forward selama projector training. LLM tetap eval/frozen; autograd input diperlukan agar projector menerima gradien. Mengaktifkan toggle checkpoint HF yang hanya bekerja pada training LLM tidak cukup. Uji loss/projector gradients dan generation terhadap eager tanpa checkpoint sebelum memilih config CUDA. Tidak perlu dependensi FlashAttention terkompilasi. Laptop tiny random Qwen membuktikan wiring, bukan measured latency/VRAM atau kemampuan Qwen pretrained.
+
+Pertanyaan memakai `task_interval_s`, sedangkan `label_support` mencatat subset frame yang valid; numeric evidence/GT tidak diberikan ke prompt. Threshold/QA policy/checkpoint selection dikunci train/val sebelum test. [Runbook](../m4human_development_runbook.md) memuat alur actual commands dan gate artifacts.

@@ -148,21 +148,46 @@ def audit(root, output, schema_path=None, manifest_path=None, joint_map_path=Non
     if coordinate.get('audited') is not True or coordinate.get('output_unit') != 'meter' or not coordinate.get('radar_frame') or not coordinate.get('evidence'):
         raise ValueError('coordinate/unit/origin evidence gate unresolved')
     import lmdb
-    counts = {}
-    for entry in inv['databases']:
-        path = source / entry['name']
-        env = lmdb.open(str(path), subdir=path.is_dir(), readonly=True,create=False,lock=False,writemap=False,readahead=False)
-        with env.begin(write=False) as tx:
-            counts[entry['name']] = tx.stat()['entries']
-        env.close()
-    if 'radar_pc.lmdb' not in counts or 'params.lmdb' not in counts or 'calib.lmdb' not in counts or 'indicator.lmdb' not in counts:
+    counts, key_coverage = {}, {}
+    required_sources = ('radar_pc.lmdb', 'params.lmdb', 'calib.lmdb', 'indicator.lmdb')
+    available = {entry['name'] for entry in inv['databases']}
+    if any(name not in available for name in required_sources):
         raise ValueError('required RPC/target/audit LMDB source missing')
+    frame_keys = {row['source_key'].encode('utf-8') for row in rows}
+    if not frame_keys:
+        raise ValueError('required frame manifest is empty')
+    for name in required_sources:
+        expected = ({row.get('calibration_key', row['source_key']).encode('utf-8') for row in rows}
+                    if name == 'calib.lmdb' else frame_keys)
+        path = source / name
+        env = lmdb.open(str(path), subdir=path.is_dir(), readonly=True, create=False,
+                        lock=False, writemap=False, readahead=False)
+        try:
+            with env.begin(write=False) as tx:
+                counts[name] = tx.stat()['entries']
+                missing, missing_examples = 0, []
+                for key in expected:
+                    if tx.get(key) is None:
+                        missing += 1
+                        if len(missing_examples) < 8:
+                            missing_examples.append(key.decode('utf-8', 'replace'))
+                unexpected, unexpected_examples = 0, []
+                for key in tx.cursor().iternext(keys=True, values=False):
+                    if key not in expected:
+                        unexpected += 1
+                        if len(unexpected_examples) < 8:
+                            unexpected_examples.append(key.decode('utf-8', 'replace'))
+        finally:
+            env.close()
+        if counts[name] == 0 or missing or unexpected:
+            raise ValueError(f'{name} exact key coverage failed: empty={counts[name] == 0}, '
+                             f'missing={missing} examples={missing_examples}, '
+                             f'unexpected={unexpected} examples={unexpected_examples}')
+        key_coverage[name] = {'expected': len(expected), 'missing': 0, 'unexpected': 0}
     reader = RPCOnlyReader(source,schema)
     rejected, cloud_counts, partition_counts = Counter(),Counter(),Counter()
-    unique = set()
     with (output/'frames.jsonl').open('w',encoding='utf-8') as good, (output/'rejections.jsonl').open('w',encoding='utf-8') as bad:
         for row in rows:
-            unique.add(row['source_key'])
             try:
                 clean, count = clean_rpc(reader.read(row['source_key']),schema)
                 valid = bool(len(clean))
@@ -179,11 +204,10 @@ def audit(root, output, schema_path=None, manifest_path=None, joint_map_path=Non
                 row = dict(row,schema_valid=False,sensor_frame_valid=False,finite_point_count=0)
                 good.write(json.dumps(row,allow_nan=False)+'\n')
     reader.close()
-    if len(unique) != counts['radar_pc.lmdb']:
-        raise ValueError('source manifest must cover full RPC inventory; unseen entries cannot be silently excluded')
     report.update(status='verified',missing_gates=[],schema_hash=file_sha256(schema_path),split_manifest_hash=file_sha256(manifest_path),
                   joint_map_hash=file_sha256(joint_map_path),coordinate_hash=file_sha256(coordinate_path),
-                  source_provenance=provenance,entry_counts=counts,frame_count=len(rows),partition_counts=dict(partition_counts),
+                  source_provenance=provenance,entry_counts=counts,key_coverage=key_coverage,
+                  annotation_semantics_verified=False,frame_count=len(rows),partition_counts=dict(partition_counts),
                   rejection_counts=dict(rejected),point_counts=dict(cloud_counts),frame_manifest_hash=file_sha256(output/'frames.jsonl'),
                   audit_scope='structural_and_supplied_semantics; supplied scientific evidence must be inspected separately')
     atomic_json(output/'audit_report.json',report)

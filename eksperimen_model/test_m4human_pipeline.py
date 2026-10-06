@@ -23,6 +23,12 @@ CHECKS = (
     "test_m4human_language_contract",
     "test_m4human_physical_contract",
     "test_m4human_integration",
+    "test_m4human_performance_contract",
+    "test_m4human_gate_artifact_contract",
+    "test_m4human_training_hardening",
+    "test_m4human_memory_contract",
+    "test_m4human_resource_budget",
+    "test_m4human_stage_performance",
 )
 
 
@@ -58,7 +64,7 @@ def main():
                 print(result["output"], flush=True)
     changed = any(file_sha256(root/path) != digest for path,digest in source_hashes.items())
     passed = all(result["exit_code"] == 0 for result in results) and not changed
-    packages = ("torch", "numpy", "scipy", "lmdb", "msgpack", "transformers", "accelerate", "smplx", "matplotlib", "pyyaml")
+    packages = ("torch", "numpy", "scipy", "lmdb", "msgpack", "transformers", "accelerate", "smplx", "matplotlib", "pyyaml", "psutil")
     report = {"status": "passed" if passed else "failed", "started_utc": started,
               "finished_utc": datetime.now(timezone.utc).isoformat(), "data_kind": "synthetic",
               "scientific_gates": "not_run", "python": platform.python_version(),

@@ -2,7 +2,7 @@
 
 **Judul kerja:** *Kinematic-Preserving Radar Tokenization for Sensor-Grounded Temporal Question Answering with a Frozen Language Model*
 
-**Revisi menyeluruh:** 4 Oktober 2026. **Kontrak:** `m4human_kinetok_v3`.
+**Revisi protokol:** 6 Oktober 2026. **Kontrak:** `m4human_kinetok_v3`.
 
 **Status:** usulan metode dan protokol proof of concept; bukan hasil eksperimen. Dataset processed M4Human berada pada perangkat lain. Root `/dataset`, kualitas label, runtime, dan kelayakan GPU belum diverifikasi dari checkout ini.
 
@@ -252,3 +252,13 @@ Kontrak v3 menggantikan deterministik 8 bin × 2 slot v2 pada penelitian baru. A
 ## 14. Kesimpulan final
 
 Penelitian ini bukan proyek untuk membuktikan ulang bahwa sensor dapat dihubungkan ke bahasa, dan bukan proyek yang wajib memenangkan semua baseline. Ia mengusulkan mekanisme pelestarian kinematik pada token radar ringkas, mengukur apa yang dipertahankan atau hilang, dan memeriksa apakah frozen LLM memanfaatkan informasi itu pada task terpilih. Literatur memberi pijakan sekaligus menunjukkan bahwa tokenizer, velocity supervision, dan motion understanding sudah mempunyai pendahulu. Kontribusi kita harus berdiri pada treatment yang jelas, perbandingan yang adil, dan bukti pada token akhir serta QA; kekuatan klaim mengikuti hasil, bukan sebaliknya.
+
+## Status implementasi dan resource — 6 Oktober 2026
+
+Pipeline lokal E→M→C→probe→projector, audit/export target, QA/generation/test lock, performance loader/profiler dan checkpoint gate telah diimplementasikan dengan fixture sintetis. Ini belum merupakan hasil penelitian M4Human nyata atau benchmark RTX3060. Rincian operasional ada pada [runbook](m4human_development_runbook.md) dan [audit hardening](m4human_hardening_audit_20261006.md).
+
+RPC XYZ/intensity merupakan satu-satunya input sensor P0. RT hanya ablation optional setelah audit, tidak disamakan otomatis dengan channel Doppler. Query QA memakai interval waktu yang ditentukan; actual label/evidence support adalah subset frame valid recipe dan tidak dibocorkan ke prompt. Target unit/joint/calibration/root tetap memerlukan audit paket pada komputer dataset.
+
+Kandidat E batch efektif128 adalah perubahan protokol dari baseline16, memerlukan pilot train/val dan pencatatan update/exposure; tidak ada klaim speedup atau jaminan12GB muat. Baseline M32, C/probe16 dan L16 tetap dipertahankan ketika menyesuaikan microbatch. L mendukung native SDPA dan explicit activation checkpoint wrapper dengan frozen LLM eval; parity input/projector gradient dan generation tetap harus diukur pada CUDA.
+
+Root threshold ditentukan train/val sebelum selected run dan test lock. Mode/spec/decision serta full resolved config dan verified readiness artifact hashes mengikat checkpoint terpilih; smoke tidak menjadi scientific karena pengeditan config. Bundel run lengkap/checksum dan metric recomputation menyediakan keterlacakan, bukan bukti hipotesis. Legacy smoke yang kehilangan checkpoint/predictions tetap incomplete; kompatibilitas LF/CRLF tidak menciptakan bukti yang hilang. Final contract suite, tiny-overfit train-only, numerical parity dan pengukuran real-data CUDA dicatat terpisah sesuai status aktual.

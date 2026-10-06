@@ -45,16 +45,8 @@ def validate_qa(record):
 
 
 def read_qa(path):
-    def unique_keys(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"Duplicate QA JSON field: {key}")
-            result[key] = value
-        return result
-    records = [json.loads(line, object_pairs_hook=unique_keys,
-                          parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"Nonfinite QA JSON: {value}")))
-               for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    from .m4human_dataset import ManifestSequence
+    records = ManifestSequence(path,identity_field='qa_id',strict_json=True)
     ids, subject_splits, recording_splits, window_splits = set(), {}, {}, {}
     for record in records:
         validate_qa(record)
@@ -73,7 +65,9 @@ class M4HumanQADataset(Dataset):
     def __init__(self, qa_path, cache_manifest, split, condition, expected_lineage=None, test_contract=None):
         if condition not in {"C_base", "C_kin"}:
             raise ValueError("Only matched exact-U conditions accepted")
-        self.records = [row for row in read_qa(qa_path) if row["split"] == split and row["target_status"] != "undefined"]
+        from .m4human_dataset import ManifestSequence, ManifestView, UIDIndex
+        records = read_qa(qa_path)
+        self.records = ManifestView(records,[i for i,row in enumerate(records) if row['split'] == split and row['target_status'] != 'undefined'])
         if split == "test" and not test_contract:
             raise ValueError("Test access requires locked test_contract")
         metadata_path = cache_metadata_path(cache_manifest).resolve()
@@ -87,7 +81,7 @@ class M4HumanQADataset(Dataset):
             index_path = self.cache_root / "index.jsonl"
             if self.metadata.get("index_sha256") != file_sha256(index_path):
                 raise ValueError("U index integrity failure")
-            windows = [json.loads(line) for line in index_path.read_text().splitlines() if line.strip()]
+            windows = ManifestSequence(index_path,identity_field='window_id')
         if self.metadata.get("contract_version") != CONTRACT_VERSION or self.metadata.get("complete") is not True:
             raise ValueError("Foreign or incomplete U cache")
         self.expected_lineage = expected_lineage or {}
@@ -98,9 +92,7 @@ class M4HumanQADataset(Dataset):
         if split == "test":
             from eksperimen_model.m4human_evaluation import verify_test_contract
             verify_test_contract(test_contract, qa_path=qa_path, cache_manifest=cache_manifest, condition=condition)
-        self.windows = {row["window_id"]: row for row in windows}
-        if len(self.windows) != len(windows):
-            raise ValueError("Duplicate U cache window")
+        self.windows = UIDIndex(windows,'window_id',rows_as_values=True)
         for row in self.records:
             cached = self.windows.get(row["window_id"])
             if cached is None or cached.get("split") != split:
@@ -126,10 +118,8 @@ class M4HumanQADataset(Dataset):
         path = (self.cache_root / cached["tensor_path"]).resolve()
         if not path.is_relative_to(self.cache_root):
             raise ValueError("U cache tensor path escapes manifest root")
-        from eksperimen_model.utils.m4human_runtime import file_sha256
-        if cached.get("tensor_sha256") != file_sha256(path):
-            raise ValueError("U cache tensor checksum mismatch")
-        payload = torch.load(path, map_location="cpu", weights_only=True)
+        from .m4human_dataset import checked_tensor_load
+        payload = checked_tensor_load(path,cached.get('tensor_sha256'))
         if "time_s" not in payload or len(payload["time_s"]) != 32 or len(row["time_s"]) != 32 or any(not math.isclose(float(a), float(b), rel_tol=0, abs_tol=1e-9) for a, b in zip(payload["time_s"], row["time_s"])):
             raise ValueError("QA/U exact-window timestamp mismatch")
         U = payload["U"].detach().clone()

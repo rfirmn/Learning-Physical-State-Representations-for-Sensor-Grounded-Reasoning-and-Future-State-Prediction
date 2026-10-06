@@ -44,7 +44,7 @@ Penalaran Bahasa Alami (Spatial, Temporal, Counterfactual Reasoning)
 | Tahap | Fokus | Input | Output / Target | Status |
 | :---: | :--- | :--- | :--- | :---: |
 | **Tahap 1** | Inisialisasi Bobot 3D | ShapeNet CAD | Bobot Point-MAE Transformer Encoder (**Model A**) | **Selesai** ([models/Point-MAE/pretrain.pth](models/Point-MAE/pretrain.pth)) |
-| **Tahap 2** | Adaptasi Domain Radar & Pose Estimation | Point Cloud Radar MM-Fi ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Selesai** ([eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth](eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth)) |
+| **Tahap 2** | Adaptasi Domain Radar & Pose Estimation | Point Cloud Radar MM-Fi ($N=128$) | Estimasi 17 Joint 3D Skeleton (**Model Av2**) | **Selesai** ([eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth](eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth)) |
 | **Tahap 3** | Pemodelan Dinamika Temporal | Sekuens Status ($Z_{t-k \dots t}$) | Prediksi Masa Depan ($Z_{t+1 \dots t+h}$) | **Selesai** ([eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth](eksperimen_model/checkpoints/dynamics/best_dynamics_model.pth)) |
 | **Tahap 4** | Penyelarasan Kognitif ke SLM | Vektor $Z_t$ & $Z_{t+1:t+h}$ | *Pseudo-tokens* untuk penalaran SLM (Qwen2.5-1.5B) | **Aktif** ([eksperimen_model/train_projector.py](eksperimen_model/train_projector.py)) |
 
@@ -152,7 +152,7 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
   ```
 - **Training Model v2 Teroptimasi Langsung (60–100 Epochs):**
   ```powershell
-  & ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_v2.yaml --epochs 100
+  & ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --epochs 100
   ```
 - **Hyperparameter Tuning Mandiri:**
   ```powershell
@@ -165,7 +165,7 @@ Setiap training yang dijalankan melalui `train_pose.py` **otomatis menghasilkan 
 
 ### 3. Mengevaluasi Checkpoint Model per Sendi:
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_v2.yaml --split val
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --split val
 ```
 
 ### 4. Menjalankan Domain Adaptation Self-Supervised (MAE):

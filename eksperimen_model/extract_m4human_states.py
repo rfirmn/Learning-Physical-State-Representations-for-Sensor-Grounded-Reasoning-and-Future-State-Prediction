@@ -13,9 +13,16 @@ from eksperimen_model.models.m4human_encoder import M4HumanSetEncoderV2
 from eksperimen_model.utils.m4human_runtime import (CONTRACT_VERSION, atomic_json, canonical_hash, file_sha256, freeze,
                                      load_checkpoint, state_dict_hash)
 from eksperimen_model.utils.m4human_kinematics import DEFAULT_RECIPE
+from eksperimen_model.utils.m4human_gates import require_encoder_gate
+from eksperimen_model.utils.m4human_performance import configure_runtime, make_loader
 
 
-def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=False):
+def collate_sensor_samples(samples):
+    return {'sensor':{key:torch.stack([sample['sensor'][key] for sample in samples]) for key in samples[0]['sensor']},
+            'provenance':[sample['provenance'] for sample in samples]}
+
+
+def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=False,batch_size=None):
     paths = config['paths']
     kind = config.get('data_kind')
     if config.get('contract_version')!=CONTRACT_VERSION or kind not in (('m4human','synthetic') if allow_debug else ('m4human',)):
@@ -46,11 +53,12 @@ def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=Fal
     norm = payload['metadata']['normalizer']
     if not torch.allclose(model.input_mean,torch.tensor(norm['mean'])) or not torch.allclose(model.input_std,torch.tensor(norm['std'])):
         raise ValueError('checkpoint normalizer buffers mismatch')
-    root_gate = config['training']['root_quality_gate_m']
-    root_error = payload['metadata'].get('validation_metrics',{}).get('root',{}).get('mean_m')
-    eligible = kind=='m4human' and root_gate is not None and root_error is not None and root_error<=root_gate
-    if not eligible and not allow_debug:
-        raise ValueError('root gate unresolved/failed; --allow-debug marks non-scientific cache explicitly')
+    gate_decision = require_encoder_gate(payload, config, allow_debug)
+    eligible = gate_decision['scientific_eligible']
+    # Cache precision stays fp32 even when training used verified AMP.
+    settings = dict(config['training'],precision='fp32')
+    configure_runtime(settings,device)
+    batch_size = settings.get('eval_batch_size',4) if batch_size is None else batch_size
     freeze(model.to(device))
     before = state_dict_hash(model)
     dataset = M4HumanCausalSensorDataset(paths['dataset_root'],paths['frame_manifest'],read_json(paths['schema']),split,False,config['training']['seed'])
@@ -67,17 +75,20 @@ def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=Fal
               'time_s':((len(dataset),),np.float64),'sensor_valid':((len(dataset),),bool)}
     arrays = {name:np.lib.format.open_memmap(temporary/(name+'.npy'),mode='w+',dtype=dtype,shape=shape) for name,(shape,dtype) in fields.items()}
     try:
+        loader = make_loader(dataset,batch_size,settings,device,collate_fn=collate_sensor_samples)
+        offset = 0
         with (temporary/'manifest.jsonl').open('w',encoding='utf-8') as handle, torch.no_grad():
-            for i in range(len(dataset)):
-                sample = dataset[i]
-                sensor = {k:v.unsqueeze(0).to(device) for k,v in sample['sensor'].items()}
+            for batch in loader:
+                sensor = {k:v.to(device,non_blocking=settings.get('non_blocking',False)) for k,v in batch['sensor'].items()}
                 prediction = model(**sensor)
                 if not prediction['sensor_valid'].all() or any(not torch.isfinite(prediction[k]).all() for k in ('P_enc_relative_m','r_enc_m','f_enc')):
                     raise ValueError('invalid scientific extraction anchor')
                 for name,key in [('P_enc','P_enc_relative_m'),('r_enc','r_enc_m'),('f_enc','f_enc'),('sensor_valid','sensor_valid')]:
-                    arrays[name][i] = prediction[key][0].float().cpu().numpy() if name!='sensor_valid' else bool(prediction[key][0])
-                arrays['time_s'][i] = float(sample['sensor']['time_s'][-1])
-                handle.write(json.dumps(sample['provenance'],allow_nan=False)+'\n')
+                    arrays[name][offset:offset+len(batch['provenance'])] = prediction[key].cpu().numpy()
+                arrays['time_s'][offset:offset+len(batch['provenance'])] = batch['sensor']['time_s'][:,-1].numpy()
+                for provenance in batch['provenance']:
+                    handle.write(json.dumps(provenance,allow_nan=False)+'\n')
+                offset += len(batch['provenance'])
         for arr in arrays.values():
             arr.flush()
         after = state_dict_hash(model)
@@ -85,7 +96,7 @@ def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=Fal
             raise ValueError('frozen encoder mutated during extraction')
         state_lineage = dict(payload['metadata']['lineage'],encoder_hash=before,encoder_state_hash=before,encoder_checkpoint_hash=file_sha256(checkpoint))
         metadata = {'contract_version':CONTRACT_VERSION,'complete':True,'data_kind':kind,'count':len(dataset),
-                    'scientific_eligible':eligible,'feature_dtype':'float32','precision_status':'reference_no_fp16_quantization',
+                    'scientific_eligible':eligible,'encoder_gate_decision':gate_decision,'feature_dtype':'float32','precision_status':'reference_no_fp16_quantization',
                     'lineage':state_lineage,'max_gap_s':read_json(paths['schema'])['max_gap_s'],
                     'encoder_hash_before':before,'encoder_hash_after':after,'split':split,
                     'arrays':{name:file_sha256(temporary/(name+'.npy')) for name in fields},'manifest_hash':file_sha256(temporary/'manifest.jsonl')}
@@ -109,11 +120,12 @@ def main():
     p.add_argument('--output-dir',required=True)
     p.add_argument('--split',choices=('train','val','test'))
     p.add_argument('--device',default='cpu')
+    p.add_argument('--batch-size',type=int,help='Defaults to training.eval_batch_size; extraction stays fp32')
     p.add_argument('--allow-debug',action='store_true')
     a = p.parse_args()
     with open(a.config,encoding='utf-8') as handle:
         config = yaml.safe_load(handle)
-    print(json.dumps(extract(config,a.checkpoint,a.output_dir,a.split,a.device,a.allow_debug),indent=2))
+    print(json.dumps(extract(config,a.checkpoint,a.output_dir,a.split,a.device,a.allow_debug,a.batch_size),indent=2))
 
 if __name__=='__main__':
     main()

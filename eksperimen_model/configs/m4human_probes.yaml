@@ -30,3 +30,15 @@ lineage:
   recipe_hash: null
   encoder_hash: null
   motion_hash: null
+effective_batch: 16
+eval_batch_size: 4
+workers: 0
+cpu_threads: 1
+prefetch_factor: 2
+persistent_workers: false
+pin_memory: true
+non_blocking: true
+multiprocessing_context: spawn
+ram_reserve_mib: 2048
+vram_reserve_mib: 1024
+resource_poll_ms: 250

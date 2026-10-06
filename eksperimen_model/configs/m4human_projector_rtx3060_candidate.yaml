@@ -4,6 +4,7 @@ llm:
   model: Qwen/Qwen2.5-1.5B-Instruct
   revision: null
   transformers_version: 4.45.2
+  attention_backend: sdpa
 projector:
   input_dim: 256
   hidden_dim: 512
@@ -11,8 +12,8 @@ projector:
 training:
   seed: 42
   epochs_cap: 5
-  micro_batch: 1
-  accumulation: 16
+  micro_batch: 16
+  accumulation: 1
   learning_rate: 0.0001
   weight_decay: 0.01
   warmup_fraction: 0.05
@@ -22,22 +23,24 @@ training:
   max_prefix_tokens: 192
   max_total_tokens: 256
   effective_batch: 16
-  eval_batch_size: 4
+  eval_batch_size: 16
   workers: 0
-  cpu_threads: 1
+  cpu_threads: 4
   prefetch_factor: 2
   persistent_workers: false
-  pin_memory: true
+  pin_memory: false
   non_blocking: true
   multiprocessing_context: spawn
-  ram_reserve_mib: 2048
-  vram_reserve_mib: 1024
+  activation_checkpointing: true
+  ram_reserve_mib: 128
+  vram_reserve_mib: 128
   resource_poll_ms: 250
 generation:
   max_new_tokens: 64
   do_sample: false
   num_beams: 1
   use_cache: true
+  batch_size: 16
 selected_tasks:
 - root_speed_trend
 - relative_limb_motion
@@ -48,3 +51,14 @@ lineage:
   recipe_hash: null
   joint_map_hash: null
   split_hash: null
+performance_policy:
+  status: unmeasured_capacity_candidate
+  target_hardware: RTX 3060 12 GB; system RAM16GB
+  effective_batch: 16
+  batch_policy: preserve_baseline_effective_batch
+  precision_gate: requires_fp32_parity_and_stability
+  selection: measured_memory_capacity_finite_gradients_and_validation_quality
+  rationale: larger_microbatch_with_sdpa_activation_checkpointing_and_generation16
+  resource_policy: retain_RAM128MiB_CUDA_headroom128MiB; candidate_requires_actual_measurement
+  original_effective_batch: 16
+  objective: maximize_RAM_usage_and_physical_batch_capacity

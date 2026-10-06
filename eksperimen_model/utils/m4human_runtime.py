@@ -51,6 +51,26 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def text_sha256(path, newline="lf"):
+    """UTF-8 completion text hash; newline normalization only, not JSON rewriting."""
+    digest = hashlib.sha256()
+    with open(path, encoding="utf-8", newline="") as handle:
+        for line in handle:
+            normalized = line.replace("\r\n", "\n")
+            digest.update((normalized.replace("\n", "\r\n") if newline == "crlf" else normalized).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def completion_text_matches(path, expected, algorithm=None):
+    if algorithm == "utf8_lf_sha256":
+        return expected == text_sha256(path)
+    if algorithm is not None:
+        return False
+    # Old completion markers hashed platform text bytes. Accept only the same
+    # UTF-8 content with LF/CRLF conversion; lineage always hashes exact bytes.
+    return expected in (file_sha256(path), text_sha256(path), text_sha256(path, "crlf"))
+
+
 def state_dict_hash(module_or_state):
     state = module_or_state.state_dict() if isinstance(module_or_state, torch.nn.Module) else module_or_state
     digest = hashlib.sha256()
@@ -199,21 +219,58 @@ def environment_snapshot():
             "untracked_code_sha256": {str(path): file_sha256(path) for path in code_files if path.is_file()}}
 
 
+def process_tree_resources():
+    """Sample system headroom and process-tree accounting, never physical RSS usage."""
+    import psutil
+    process = psutil.Process()
+    processes = [process] + process.children(recursive=True)
+    rows, partial = [], False
+    for member in processes:
+        try:
+            rss = member.memory_info().rss
+            try:
+                uss = getattr(member.memory_full_info(), "uss", None)
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                uss = None
+            rows.append({"pid": member.pid, "rss_bytes": rss, "uss_bytes": uss})
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            partial = True
+    memory, swap = psutil.virtual_memory(), psutil.swap_memory()
+    return {"ram_total_bytes": memory.total, "ram_available_bytes": memory.available,
+            "process_scope": "parent_and_recursive_descendants",
+            "processes": rows, "process_sample_partial": partial,
+            "process_tree_rss_sum_bytes": sum(row["rss_bytes"] for row in rows),
+            "rss_sum_semantics": "sum_of_process_RSS; shared_pages_may_be_counted_multiple_times; not_physical_RAM_usage",
+            "process_tree_uss_sum_bytes": sum(row["uss_bytes"] for row in rows)
+                if rows and all(row["uss_bytes"] is not None for row in rows) and not partial else None,
+            "swap_used_bytes": swap.used,
+            "swap_in_bytes": None if sys.platform == "win32" else getattr(swap, "sin", None),
+            "swap_out_bytes": None if sys.platform == "win32" else getattr(swap, "sout", None)}
+
+
 def resource_snapshot():
-    # ru_maxrss is bytes on macOS, KiB on Linux; unavailable on Windows.
+    current, peak = None, None
+    try:
+        import psutil
+        info = psutil.Process().memory_info()
+        current = info.rss
+        peak = getattr(info, "peak_wset", None)
+    except ImportError:
+        pass
     try:
         import resource
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        rss = int(rss if sys.platform == "darwin" else rss * 1024)
+        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak = int(value if sys.platform == "darwin" else value * 1024)
     except ImportError:
-        try:
-            import psutil
-            rss = psutil.Process().memory_info().rss
-        except ImportError:
-            rss = None
-    return {"process_peak_rss_bytes": rss,
-            "cuda_peak_allocated_bytes": torch.cuda.max_memory_allocated() if torch.cuda.is_available() else None,
-            "cuda_peak_reserved_bytes": torch.cuda.max_memory_reserved() if torch.cuda.is_available() else None}
+        pass
+    devices = {str(i): {"peak_allocated_bytes": torch.cuda.max_memory_allocated(i),
+                        "peak_reserved_bytes": torch.cuda.max_memory_reserved(i)}
+               for i in range(torch.cuda.device_count())} if torch.cuda.is_available() else {}
+    active = str(torch.cuda.current_device()) if devices else None
+    return {"process_current_rss_bytes": current, "process_peak_rss_bytes": peak,
+            "cuda_device_peaks": devices,
+            "cuda_peak_allocated_bytes": devices[active]["peak_allocated_bytes"] if active else None,
+            "cuda_peak_reserved_bytes": devices[active]["peak_reserved_bytes"] if active else None}
 
 
 def plot_run_history(root):
@@ -305,8 +362,9 @@ class RunLogger:
             handle.write("```json\n" + json.dumps(result, default=_json_default, indent=2, allow_nan=False) + "\n```\n")
         atomic_json(self.output_dir / "completion.json", {
             "status": status, "analysis_ready": not artifact_issues,
-            "metrics_hash": file_sha256(self.output_dir / "metrics.json"),
-            "history_hash": file_sha256(self.output_dir / "history.jsonl") if (self.output_dir / "history.jsonl").exists() else None})
+            "text_hash_algorithm": "utf8_lf_sha256",
+            "metrics_hash": text_sha256(self.output_dir / "metrics.json"),
+            "history_hash": text_sha256(self.output_dir / "history.jsonl") if (self.output_dir / "history.jsonl").exists() else None})
         self.closed = True
         if self.data_kind == "m4human":
             report_root = next((p for p in self.output_dir.parents if p.name == "report_training"), None)
@@ -345,11 +403,17 @@ def validate_run_artifacts(output_dir, require_completion=True):
                 if canonical_hash(yaml.safe_load(handle)) != lineage["config_hash"]:
                     issues.append("config_hash_mismatch")
     if (root / "predictions_val.jsonl").exists():
-        rows = list(iter_jsonl(root / "predictions_val.jsonl"))
-        ids = [row.get("qa_id", row.get("window_id", row.get("frame_uid"))) for row in rows]
-        if not rows or any(value is None for value in ids) or len(ids) != len(set(ids)):
+        ids, row_count, missing_groups, invalid_ids = set(), 0, False, False
+        for row in iter_jsonl(root / "predictions_val.jsonl"):
+            row_count += 1
+            identity = row.get("qa_id", row.get("window_id", row.get("frame_uid")))
+            if identity is None or identity in ids:
+                invalid_ids = True
+            ids.add(identity)
+            missing_groups |= not all(key in row for key in ("subject_id", "recording_id"))
+        if not row_count or invalid_ids:
             issues.append("prediction_ids_missing_or_duplicate")
-        if any(not all(key in row for key in ("subject_id", "recording_id")) for row in rows):
+        if missing_groups:
             issues.append("prediction_group_ids_missing")
     for name in ("best.pt", "last.pt"):
         if (root / name).exists():
@@ -380,9 +444,9 @@ def validate_run_artifacts(output_dir, require_completion=True):
             completion = read_json(root / "completion.json")
             if completion.get("status") != "complete":
                 issues.append("not_complete")
-            if (root / "metrics.json").exists() and completion.get("metrics_hash") != file_sha256(root / "metrics.json"):
+            if (root / "metrics.json").exists() and not completion_text_matches(root / "metrics.json", completion.get("metrics_hash"), completion.get("text_hash_algorithm")):
                 issues.append("completion_hash_mismatch")
-            if (root / "history.jsonl").exists() and completion.get("history_hash") != file_sha256(root / "history.jsonl"):
+            if (root / "history.jsonl").exists() and not completion_text_matches(root / "history.jsonl", completion.get("history_hash"), completion.get("text_hash_algorithm")):
                 issues.append("completion_history_hash_mismatch")
     # Recompute from saved records, rather than trusting a 'verified' flag.
     if not (root / "metric_recomputation.json").exists():
@@ -399,14 +463,19 @@ def validate_run_artifacts(output_dir, require_completion=True):
                 issues.append("qa_reference_missing_or_changed")
             else:
                 from eksperimen_model.m4human_evaluation import score_rows
-                computed = score_rows(list(iter_jsonl(reference)), rows, witness.get("selected_tasks"))
+                class Predictions:
+                    def __iter__(self):
+                        return iter_jsonl(root / "predictions_val.jsonl")
+                    def __len__(self):
+                        return row_count
+                computed = score_rows(list(iter_jsonl(reference)), Predictions(), witness.get("selected_tasks"))
                 if canonical_hash(computed) != canonical_hash(witness.get("metrics")):
                     issues.append("qa_metric_recomputation_mismatch")
                 if (root / "metrics.json").exists() and canonical_hash(read_json(root / "metrics.json").get("selected_metrics")) != canonical_hash(computed):
                     issues.append("reported_qa_metrics_mismatch")
         else:
             totals = {}
-            for row in rows:
+            for row in iter_jsonl(root / "predictions_val.jsonl"):
                 for key, metric in row.get("metrics", {}).items():
                     if not isinstance(metric, dict) or "count" not in metric:
                         continue

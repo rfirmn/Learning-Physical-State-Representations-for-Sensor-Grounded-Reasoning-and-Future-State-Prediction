@@ -1,6 +1,6 @@
 # 02 — Representasi Gerak dan Tokenizer dengan Pelestarian Kinematik
 
-Tanggal revisi: 4 Oktober 2026. Kontrak bersama: **m4human_kinetok_v3**. Status: rancangan penelitian dan development; bukan laporan training atau bukti keberhasilan. Arah ilmiah mengikuti [proposal terbaru](../proposal_riset_terbaru.md), input sensor mengikuti [01 — Encoder](01_encoder.md), target/readout mengikuti [03 — Decoder](03_decoder.md), alignment mengikuti [04 — LLM layer](04_llm_layer.md), dan pengujian mengikuti [05 — Evaluasi](05_evaluasi_testing.md).
+Tanggal revisi: 6 Oktober 2026. Kontrak bersama: **m4human_kinetok_v3**. Status: protokol penelitian dengan implementasi lokal; bukan laporan training nyata atau bukti keberhasilan. Arah ilmiah mengikuti [proposal terbaru](../proposal_riset_terbaru.md), input sensor mengikuti [01 — Encoder](01_encoder.md), target/readout mengikuti [03 — Decoder](03_decoder.md), alignment mengikuti [04 — LLM layer](04_llm_layer.md), dan pengujian mengikuti [05 — Evaluasi](05_evaluasi_testing.md).
 
 ## 1. Peran modul dan pertanyaan yang diuji
 
@@ -314,11 +314,11 @@ Bundle: window/frame/time/context/masks; source/split/encoder/motion/readout has
 
 Strict load menolak unknown ID/shape/recipe/foreign hashes. Resume optimizer/scaler/scheduler/RNG/sampler/successful-skipped updates; epoch-boundary default. Catat GPU allocated/reserved peak, CPU RSS, median/p95 step, windows/sec, I/O. Report run baru setelah training nyata; tidak menimpa artefak MM-Fi.
 
-Logging M/C mengikuti [dokumen 05 §12.2–12.3](05_evaluasi_testing.md#122-kontrak-log-minimum-untuk-analisis-pascarun): term p/v dan full-H fidelity/auxiliary dipisahkan, counts/support serta norm gradient per grup dicatat, selected-checkpoint records dan panel trajectories disimpan. Diagnosis membedakan upstream, kompresi dan probe; iterasi K16 melalui train/validation memakai parent/config diff dan fairness matched, tanpa menambah scope P0 atau menjamin gain.
+Logging M/C mengikuti [dokumen 05 §12.2–12.3](05_evaluasi_testing.md#122-kontrak-log-minimum-untuk-analisis-pascarun): term p/v dan full-H fidelity/auxiliary dipisahkan, counts/support dan gradient telemetry yang tersedia dicatat; helper norm gabungan tidak membuktikan norm tiap grup, selected-checkpoint records dan panel trajectories disimpan. Diagnosis membedakan upstream, kompresi dan probe; iterasi K16 melalui train/validation memakai parent/config diff dan fairness matched, tanpa menambah scope P0 atau menjamin gain.
 
 ## 12. API rencana dan gates
 
-API berikut belum dibuat oleh revisi dokumentasi ini:
+API berikut adalah pemetaan konseptual; modul lokal telah tersedia, lihat pembaruan implementasi di akhir dokumen dan signature kode aktual:
 
 ~~~text
 motion.forward(sensor_state,sensor_masks,time_s) -> H,Z,latent_masks
@@ -345,3 +345,9 @@ TargetSample hanya dibaca loss/evaluator, bukan motion/tokenizer/projector forwa
 | Resource/reload | Tiny-batch full-H backward; strict bundle/cache-live equivalence; bounded RAM |
 
 Lulus gerbang berarti studi layak diuji, bukan kebaruan atau keunggulan telah terbukti. Hasil negatif bermakna jika data, optimasi dan uncertainty memadai. Lanjut [03 — Decoder](03_decoder.md) untuk label/probe dan [04 — LLM layer](04_llm_layer.md) untuk memastikan hanya U diberikan ke frozen LLM.
+
+## Pembaruan implementasi — 6 Oktober 2026
+
+Model gerak, tokenizer, readout, trainer M/C, ekstraksi H/U dan independent probes tersedia di `eksperimen_model/`; interface konseptual di §12 dipetakan ke kode, bukan janji nama signature identik. Upstream dan matched scientific gates tetap harus ditutup dengan data aktual.
+
+Baseline efektif M=32 dan C/probe=16 dipertahankan; kandidat throughput mengubah microbatch/accumulation dengan produk tetap. Pasangan C_base/C_kin mempertahankan initial state, order, successful-update budget dan selection rule. Worker/pinning/prefetch, evaluation batch dan extraction device/batch dapat diselesaikan dari config; angka resource kandidat belum diukur di laptop. AMP menggunakan finite checks sebelum clipping dan successful steps, bukan menghitung overflow sebagai update. Retry bounded batch yang sama memerlukan verifikasi suite hardening final. Clipping compressor+fidelity dan auxiliary tetap terpisah; loop C merekam named norm compressor_fidelity/auxiliary before/after melalui norms_out. Scalar maximum return helper sendiri bukan telemetry norm tiap grup. [Runbook hardware](../m4human_development_runbook.md#7-profiling-rtx-3060-12-gb-dan-gate-checkpoint) memisahkan E128 protokol baru dari baseline tahap lain.

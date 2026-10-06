@@ -5,7 +5,8 @@ import json
 import math
 import os
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Sequence, Mapping
+import io
 import struct
 import numpy as np
 import torch
@@ -18,10 +19,100 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
+def decode_json_row(line, strict=False):
+    if not strict:
+        return json.loads(line)
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f'duplicate JSON field: {key}')
+            result[key] = value
+        return result
+    def nonfinite(value):
+        raise ValueError(f'nonfinite JSON: {value}')
+    return json.loads(line, object_pairs_hook=unique_keys, parse_constant=nonfinite)
+
+
+def share_integer_arrays(state, names):
+    for name in names:
+        value = state[name]
+        if isinstance(value, np.ndarray):
+            value = torch.from_numpy(value)
+        if not value.is_shared():
+            value.share_memory_()
+        state[name] = value
+
+
+class UIDIndex(Mapping):
+    """16 bytes/row; hash collisions resolve against the exact immutable source ID."""
+    def __init__(self, rows, identity_field='frame_uid', rows_as_values=False):
+        self.rows, self.identity_field, self.rows_as_values = rows, identity_field, rows_as_values
+        hashes = np.fromiter((self.hash_uid(row[identity_field]) for row in rows), dtype=np.int64, count=len(rows))
+        self.indices = np.argsort(hashes, kind='stable').astype(np.int64)
+        self.hashes = hashes[self.indices]
+        # Only collision groups need decoded IDs in a set; never trust hash uniqueness.
+        start = 0
+        while start < len(self.hashes):
+            stop = int(np.searchsorted(self.hashes, self.hashes[start], side='right'))
+            if stop - start > 1:
+                ids = set()
+                for i in self.indices[start:stop]:
+                    uid = rows[int(i)][identity_field]
+                    if uid in ids:
+                        raise ValueError(f'duplicate {identity_field}')
+                    ids.add(uid)
+            start = stop
+
+    @staticmethod
+    def hash_uid(uid):
+        return int.from_bytes(hashlib.sha256(uid.encode('utf-8')).digest()[:8], 'little', signed=True)
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __iter__(self):
+        return (row[self.identity_field] for row in self.rows)
+
+    def __getitem__(self, uid):
+        hashed = self.hash_uid(uid)
+        # Shared torch storage is exposed to NumPy without copying after spawn.
+        hashes = np.asarray(self.hashes)
+        start, stop = np.searchsorted(hashes, hashed, side='left'), np.searchsorted(hashes, hashed, side='right')
+        for position in range(int(start), int(stop)):
+            index = int(self.indices[position])
+            row = self.rows[index]
+            if row[self.identity_field] == uid:
+                return row if self.rows_as_values else index
+        raise KeyError(uid)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        share_integer_arrays(state, ('hashes', 'indices'))
+        self.hashes, self.indices = state['hashes'], state['indices']
+        return state
+
+
+def checked_tensor_load(path, expected_hash, max_bytes=64 * 1024 * 1024):
+    """Hash the same bounded window bytes that are deserialized; no double disk read."""
+    with Path(path).open('rb') as handle:
+        if Path(path).stat().st_size > max_bytes:
+            raise ValueError('window tensor exceeds64MiB bound')
+        payload = handle.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise ValueError('window tensor exceeds64MiB bound')
+    if not expected_hash or hashlib.sha256(payload).hexdigest() != expected_hash:
+        raise ValueError(f'cache payload changed: {Path(path).name}')
+    return torch.load(io.BytesIO(payload), map_location='cpu', weights_only=True)
+
+
 class ManifestSequence(Sequence):
     """Only line offsets in RAM; decode a row on demand, including Windows spawn."""
-    def __init__(self, path):
+    def __init__(self, path, identity_field='frame_uid', strict_json=False):
         self.path = Path(path)
+        self.identity_field, self.strict_json = identity_field, strict_json
+        self._handle = None
+        self._handle_pid = None
         offsets = []
         seen = set()
         with self.path.open('rb') as handle:
@@ -32,15 +123,18 @@ class ManifestSequence(Sequence):
                     break
                 if not line.strip():
                     continue
-                row = json.loads(line)
-                uid = row['frame_uid']
+                row = decode_json_row(line, self.strict_json)
+                uid = row[self.identity_field]
                 if uid in seen:
-                    raise ValueError('duplicate frame_uid')
+                    raise ValueError(f'duplicate {self.identity_field}')
                 seen.add(uid)
                 offsets.append(offset)
         self.offsets = np.asarray(offsets,dtype=np.int64)
         self._handle = None
         self._handle_pid = None
+
+    def __eq__(self, other):
+        return isinstance(other, Sequence) and len(self) == len(other) and all(a == b for a,b in zip(self,other))
 
     def _get_handle(self):
         pid = os.getpid()
@@ -57,7 +151,7 @@ class ManifestSequence(Sequence):
             return [self[i] for i in range(*index.indices(len(self)))]
         handle = self._get_handle()
         handle.seek(int(self.offsets[index]))
-        return json.loads(handle.readline())
+        return decode_json_row(handle.readline(), self.strict_json)
 
     def close(self):
         if self._handle is not None and not self._handle.closed:
@@ -71,6 +165,8 @@ class ManifestSequence(Sequence):
         state = self.__dict__.copy()
         state['_handle'] = None
         state['_handle_pid'] = None
+        share_integer_arrays(state, ('offsets',))
+        self.offsets = state['offsets']
         return state
 
     def __setstate__(self, state):
@@ -82,6 +178,12 @@ class ManifestSequence(Sequence):
 class ManifestView(Sequence):
     def __init__(self, rows, indices):
         self.rows,self.indices = rows,np.asarray(indices,dtype=np.int64)
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        share_integer_arrays(state, ('indices',))
+        self.indices = state['indices']
+        return state
+
     def __len__(self):
         return len(self.indices)
     def __getitem__(self,index):
@@ -256,6 +358,7 @@ def validate_frames(rows, split=None, max_gap_s=None):
     recordings = {}
     previous = {}
     seen = set()
+    last_group = None
     for row in rows:
         if any(k not in row for k in required):
             raise ValueError('frame manifest misses audited grouping/time fields')
@@ -282,6 +385,9 @@ def validate_frames(rows, split=None, max_gap_s=None):
             raise ValueError('duplicate recording frame')
         seen.add(identity)
         group = (row['recording_id'], row['segment_id'])
+        if group != last_group and group in previous:
+            raise ValueError('noncontiguous recording/segment group; sort manifest into contiguous segments')
+        last_group = group
         if group in previous:
             p = previous[group]
             if row['time_s'] <= p['time_s'] or row['subject_id'] != p['subject_id'] or row['split'] != p['split'] or (row['time_source']=='nominal_frame_index' and row['source_frame_id'] != p['source_frame_id'] + 1) or (max_gap_s is not None and row['time_s']-p['time_s'] > max_gap_s):
@@ -296,21 +402,36 @@ class M4HumanCausalSensorDataset(Dataset):
         rows = read_manifest(manifest) if isinstance(manifest, (str, Path)) else manifest
         self.rows = validate_frames(rows, split, schema['max_gap_s'])
         self.contexts = []
-        self.training, self.seed, self.epoch = training, seed, 0
+        self.training, self.seed = training, seed
+        self._epoch = torch.zeros((), dtype=torch.int64)
         for i in range(3, len(self.rows)):
             context = self.rows[i-3:i+1]
             group = {(r['recording_id'], r['segment_id'], r['split']) for r in context}
             if len(group) == 1 and all(r['sensor_frame_valid'] for r in context) and all(context[k+1]['time_s'] > context[k]['time_s'] and context[k+1]['time_s']-context[k]['time_s'] <= schema['max_gap_s'] and (context[k]['time_source']=='measured' or context[k+1]['source_frame_id'] == context[k]['source_frame_id']+1) for k in range(3)):
                 self.contexts.append(i)
+        self.contexts = np.asarray(self.contexts,dtype=np.int64)
+
+    def __getstate__(self):
+        # Spawn shares only this scalar; worker0 needs no OS shared-memory helper.
+        self._epoch.share_memory_()
+        state = self.__dict__.copy()
+        share_integer_arrays(state, ('contexts',))
+        self.contexts = state['contexts']
+        return state
+
+    @property
+    def epoch(self):
+        return int(self._epoch.item())
 
     def set_epoch(self, epoch):
-        self.epoch = int(epoch)
+        self._epoch.fill_(int(epoch))
 
     def __len__(self):
         return len(self.contexts)
 
     def __getitem__(self, index):
-        context = self.rows[self.contexts[index]-3:self.contexts[index]+1]
+        anchor = int(self.contexts[index])
+        context = self.rows[anchor-3:anchor+1]
         clouds, masks, counts = [], [], []
         for row in context:
             clean, count = clean_rpc(self.reader.read(row['source_key']), self.reader.schema)
@@ -340,24 +461,37 @@ class OfflineTargets:
         if self.metadata.get('manifest_hash') != file_sha256(self.root / 'manifest.jsonl'):
             raise ValueError('target manifest hash mismatch')
         self.rows = read_manifest(self.root / 'manifest.jsonl')
-        self.index = {r['frame_uid']: i for i, r in enumerate(self.rows)}
+        self.index = UIDIndex(self.rows)
         if self.metadata.get('count') != len(self.rows):
             raise ValueError('target count mismatch')
         for name in self.FIELDS:
             if self.metadata.get('arrays',{}).get(name) != file_sha256(self.root / (name+'.npy')):
                 raise ValueError(f'target array hash mismatch:{name}')
         self.arrays = {k: np.load(self.root / (k + '.npy'), mmap_mode='r', allow_pickle=False) for k in self.FIELDS}
+        self._arrays_pid = os.getpid()
         shapes = {'joint_global_m': (len(self.rows),22,3), 'root_m': (len(self.rows),3), 'joint_relative_m':(len(self.rows),22,3), 'annotation_joint_valid':(len(self.rows),22), 'annotation_root_valid':(len(self.rows),)}
         for name, arr in self.arrays.items():
             if arr.shape != shapes[name] or (name.startswith('annotation') and arr.dtype != np.bool_) or (not name.startswith('annotation') and arr.dtype != np.float32):
                 raise ValueError(f'invalid target array: {name}')
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['arrays'] = {}
+        state['_arrays_pid'] = None
+        return state
+
+    def _ensure_arrays(self):
+        if self._arrays_pid != os.getpid():
+            self.arrays = {k: np.load(self.root / (k + '.npy'), mmap_mode='r', allow_pickle=False) for k in self.FIELDS}
+            self._arrays_pid = os.getpid()
+
     def read(self, frame_uid):
-        if frame_uid not in self.index:
+        self._ensure_arrays()
+        i = self.index.get(frame_uid)
+        if i is None:
             return {'joint_global_m': torch.zeros(22,3), 'root_m': torch.zeros(3), 'joint_relative_m': torch.zeros(22,3),
                     'annotation_joint_valid': torch.zeros(22,dtype=torch.bool), 'annotation_root_valid':torch.tensor(False),
                     'annotation_position_valid_joint':torch.zeros(22,dtype=torch.bool), 'annotation_position_valid_root':torch.tensor(False)}
-        i = self.index[frame_uid]
         target = {k: torch.from_numpy(np.array(v[i], copy=True)) for k, v in self.arrays.items()}
         target['annotation_position_valid_joint'] = target['annotation_joint_valid'] & target['annotation_root_valid']
         target['annotation_position_valid_root'] = target['annotation_root_valid']

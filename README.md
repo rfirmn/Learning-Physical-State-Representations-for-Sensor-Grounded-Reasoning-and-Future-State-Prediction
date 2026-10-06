@@ -222,11 +222,11 @@ Mencegah Windows sleep (`SetThreadExecutionState`), menjalankan tuning, melatih 
 ```powershell
 & ".venv\Scripts\python.exe" eksperimen_model/train_pose_v2.py --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --epochs 100
 ```
-*Checkpoint tersimpan di: `eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth` dan `model_av2.pth`*
+*Checkpoint tersimpan di: `eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth`*
 
 #### Opsi C: Evaluasi Ilmiah Test Set (8 subjek unseen; jumlah frame dibaca dari artefak run)
 ```powershell
-& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/best_model.pth --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --split test --batch_size 128 --output_json docs/report_training/test_benchmark_results.json
+& ".venv\Scripts\python.exe" eksperimen_model/evaluate_pose.py --checkpoint eksperimen_model/checkpoints/pose_estimation_v2/model_av2.pth --config eksperimen_model/configs/mmfi_pose_best_tuned.yaml --split test --batch_size 128 --output_json docs/report_training/test_benchmark_results.json
 ```
 
 ---

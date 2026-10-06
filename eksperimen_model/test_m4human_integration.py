@@ -74,6 +74,32 @@ def fixture(root):
     return config
 
 
+
+def extract_with_batch_parity(extractor, config_path, checkpoint, output):
+    """Same frozen checkpoint: exact masks/IDs and fp32 cache parity within3e-6."""
+    config = yaml.safe_load(Path(config_path).read_text())
+    output = Path(output)
+    batched_output = output.with_name(output.name + '_batch4')
+    for size, destination in ((1, output), (4, batched_output)):
+        extraction_config = output.with_name(output.name + f'_batch{size}.yaml')
+        extraction_config.write_text(yaml.safe_dump(dict(config, eval_batch_size=size)))
+        extractor(extraction_config, checkpoint, destination)
+    single, batched = WindowTensorCache(output), WindowTensorCache(batched_output)
+    assert len(single) == len(batched)
+    assert single.metadata['lineage'] == batched.metadata['lineage']
+    for i in range(len(single)):
+        left, right = single[i], batched[i]
+        assert left['provenance']['window_id'] == right['provenance']['window_id']
+        assert left['sensor'].keys() == right['sensor'].keys()
+        for key, value in left['sensor'].items():
+            actual = right['sensor'][key]
+            assert value.shape == actual.shape and value.dtype == actual.dtype, key
+            if value.is_floating_point():
+                assert torch.allclose(value, actual, atol=3e-6, rtol=3e-6), key
+            else:
+                assert torch.equal(value, actual), key
+
+
 def main():
     torch.set_num_threads(1)
     with tempfile.TemporaryDirectory(prefix='m4human_integration_') as temporary:
@@ -101,7 +127,7 @@ def main():
         assert 'reported_mean_mismatch:root_error_m' in validate_run_artifacts(m_run)
         (m_run/'metrics.json').write_bytes(original_metrics)
         (m_run/'completion.json').write_bytes(original_completion)
-        extract_motion(config_path,m_run/'best.pt',root/'H')
+        extract_with_batch_parity(extract_motion,config_path,m_run/'best.pt',root/'H')
         hmeta=read_json(root/'H'/'metadata.json')
         assert hmeta['representation']=='full_H' and not hmeta['scientific_eligible']
         qa_rows,_=generate_records(windows_from_h_cache(root/'H',hmeta['lineage']['joint_map_hash'],hmeta['lineage']['recipe_hash']),config['joint_map'],DEFAULT_RECIPE,['root_speed_trend','relative_limb_motion'])
@@ -114,7 +140,7 @@ def main():
         for condition in ('C_base','C_kin'):
             train(config_path,'C',condition)
             check(root/'C_runs'/condition)
-            extract_tokens(config_path,root/'C_runs'/condition/'best.pt',root/condition)
+            extract_with_batch_parity(extract_tokens,config_path,root/'C_runs'/condition/'best.pt',root/condition)
             qa_dataset=M4HumanQADataset(qa,root/condition,'val',condition,config['lineage'])
             assert len(qa_dataset)==6 and qa_dataset[0]['U'].shape==(16,256)
         base=read_json(root/'C_runs'/'C_base'/'metrics.json')
@@ -189,7 +215,7 @@ def main():
             pass
         else:
             raise AssertionError('changed labels accepted')
-    print('PASS synthetic stage M -> exact H -> paired C -> exact U -> fresh M/U probes; artifacts recomputed; real-data gates not_run')
+    print('PASS synthetic stage M -> exact H -> paired C -> exact U -> fresh M/U probes; artifacts recomputed; extraction batch1/batch4 fp32 tolerance3e-6 passed; real-data gates not_run')
 
 
 if __name__=='__main__':

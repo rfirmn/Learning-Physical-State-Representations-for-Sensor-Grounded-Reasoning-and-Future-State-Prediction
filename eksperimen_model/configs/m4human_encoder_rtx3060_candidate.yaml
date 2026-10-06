@@ -26,8 +26,8 @@ encoder:
   feature_dim: 256
 training:
   seed: 42
-  micro_batch: 4
-  accumulation: 4
+  micro_batch: 512
+  accumulation: 1
   optimizer: AdamW
   learning_rate: 0.0002
   weight_decay: 0.01
@@ -40,18 +40,30 @@ training:
   lambda_root: 1.0
   lambda_bone: 0.0
   precision: fp16_amp_with_grad_scaler
-  workers: 0
+  workers: 4
   selection_metric: validation_mpjpe_global_m
   root_quality_gate_m: null
   diagnostic_samples: 8
-  effective_batch: 16
-  eval_batch_size: 16
+  effective_batch: 512
+  eval_batch_size: 512
   cpu_threads: 4
-  prefetch_factor: 2
-  persistent_workers: false
+  prefetch_factor: 16
+  persistent_workers: true
   pin_memory: true
   non_blocking: true
   multiprocessing_context: spawn
-  ram_reserve_mib: 2048
-  vram_reserve_mib: 1024
+  ram_reserve_mib: 128
+  vram_reserve_mib: 128
   resource_poll_ms: 250
+performance_policy:
+  status: unmeasured_capacity_candidate
+  original_effective_batch: 16
+  effective_batch: 512
+  batch_policy_change: explicit_new_protocol_requires_validation
+  target_hardware: RTX 3060 12 GB; system RAM16GB
+  learning_rate_policy: unchanged_no_automatic_scaling
+  rationale: larger_microbatch_and_64_prefetched_batches
+  resource_policy: retain_RAM128MiB_CUDA_headroom128MiB; candidate_requires_actual_measurement
+  selection: measured_memory_capacity_finite_gradients_and_validation_quality
+  objective: maximize_RAM_usage_and_physical_batch_capacity
+  prefetched_batch_capacity: 64

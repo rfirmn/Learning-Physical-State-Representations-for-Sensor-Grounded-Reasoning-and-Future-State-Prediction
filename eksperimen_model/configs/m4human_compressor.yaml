@@ -12,7 +12,7 @@ device: cuda
 seed: 42
 pelvis_index: 0
 max_gap_s: null
-K: 16 # Predefined secondary budgets 8/32 require own paired contract.
+K: 16
 lambda_aux: 1.0
 learning_rate: 0.0003
 micro_batch: 1
@@ -30,3 +30,15 @@ lineage:
   recipe_hash: null
   encoder_hash: null
   motion_hash: null
+effective_batch: 16
+eval_batch_size: 4
+workers: 0
+cpu_threads: 1
+prefetch_factor: 2
+persistent_workers: false
+pin_memory: true
+non_blocking: true
+multiprocessing_context: spawn
+ram_reserve_mib: 2048
+vram_reserve_mib: 1024
+resource_poll_ms: 250

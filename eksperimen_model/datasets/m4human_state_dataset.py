@@ -1,10 +1,11 @@
 """Lazy read-only encoder-state windows; annotation arrays are joined afterwards."""
 from pathlib import Path
 import math
+import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from .m4human_dataset import CONTRACT_VERSION, OfflineTargets, read_json, read_manifest, parse_source_key
+from .m4human_dataset import CONTRACT_VERSION, OfflineTargets, read_json, read_manifest, parse_source_key, share_integer_arrays
 from eksperimen_model.utils.m4human_runtime import file_sha256, require_lineage
 
 
@@ -37,6 +38,7 @@ class EncodedStateWindowDataset(Dataset):
             if arr.shape != shape or arr.dtype != dtype:
                 raise ValueError(f'state cache shape/dtype mismatch:{name}')
             self.arrays[name] = arr
+        self._arrays_pid = os.getpid()
         self.targets = OfflineTargets(targets_dir) if targets_dir else None
         if self.targets:
             if self.metadata.get('lineage',{}).get('target_hash') != file_sha256(self.targets.root/'metadata.json'):
@@ -50,6 +52,7 @@ class EncodedStateWindowDataset(Dataset):
         subjects = {}
         recordings = {}
         previous = None
+        seen_groups = set()
         for i, row in enumerate(self.rows):
             if row.get('split') not in ('train','val','test') or row.get('time_source') not in ('measured','nominal_frame_index') or type(row.get('time_s')) not in (float,int) or not math.isfinite(row['time_s']) or not math.isclose(float(self.arrays['time_s'][i]),row['time_s'],rel_tol=0,abs_tol=1e-9):
                 raise ValueError('state timestamp/manifest mismatch')
@@ -68,6 +71,9 @@ class EncodedStateWindowDataset(Dataset):
                 raise ValueError('context provenance incomplete')
             group = (row['recording_id'], row['segment_id'], row['split'],row['subject_id'],row['action_id'])
             if previous is None or group != previous:
+                if group in seen_groups:
+                    raise ValueError('noncontiguous recording/segment group in state cache')
+                seen_groups.add(group)
                 group_start = i
             else:
                 prior = self.rows[i-1]
@@ -79,12 +85,28 @@ class EncodedStateWindowDataset(Dataset):
             start = i - length + 1
             if start >= group_start and (start - group_start) % stride == 0 and (split is None or row['split'] == split) and self.arrays['sensor_valid'][start:i+1].all():
                 self.starts.append(start)
+        self.starts = np.asarray(self.starts,dtype=np.int64)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['arrays'] = {}
+        state['_arrays_pid'] = None
+        share_integer_arrays(state, ('starts',))
+        self.starts = state['starts']
+        return state
+
+    def _ensure_arrays(self):
+        if self._arrays_pid != os.getpid():
+            self.arrays = {k: np.load(self.root / (k + '.npy'), mmap_mode='r', allow_pickle=False)
+                           for k in ('P_enc', 'r_enc', 'f_enc', 'time_s', 'sensor_valid')}
+            self._arrays_pid = os.getpid()
 
     def __len__(self):
         return len(self.starts)
 
     def __getitem__(self, index):
-        start = self.starts[index]
+        self._ensure_arrays()
+        start = int(self.starts[index])
         stop = start + self.length
         rows = self.rows[start:stop]
         sensor = {name: torch.from_numpy(np.array(self.arrays[source][start:stop], copy=True)) for name, source in

@@ -2,6 +2,7 @@
 import hashlib
 import json
 import multiprocessing as mp
+import pickle
 from pathlib import Path
 import sys
 if __package__ in (None, ''):
@@ -12,7 +13,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from eksperimen_model.datasets.m4human_dataset import (RPCOnlyReader, M4HumanCausalSensorDataset, decode_rpc, decode_msgpack,
-    parse_source_key,sample_rpc,clean_rpc,validate_frames,OfflineTargets)
+    parse_source_key,sample_rpc,clean_rpc,validate_frames,OfflineTargets,EncoderTrainingDataset)
 from eksperimen_model.datasets.m4human_state_dataset import EncodedStateWindowDataset
 from eksperimen_model.models.m4human_encoder import M4HumanSetEncoderV2,encoder_loss
 from eksperimen_model.export_m4human_targets import target_from_joints,transform_to_radar,rotation
@@ -76,6 +77,18 @@ class FixtureTrainingDataset(Dataset):
         return sample
 
 
+def worker_equivalence(dataset):
+    from torch.utils.data import DataLoader
+    expected = next(iter(DataLoader(dataset, batch_size=2, collate_fn=collate_samples)))
+    loader = DataLoader(dataset, batch_size=2, collate_fn=collate_samples, num_workers=2,
+                        multiprocessing_context='spawn', persistent_workers=True)
+    actual = next(iter(loader))
+    for section in ('sensor', 'targets'):
+        for key, value in expected.get(section, {}).items():
+            assert torch.equal(value, actual[section][key]), (section, key)
+    return loader
+
+
 def synthetic_pipeline(root):
     import lmdb
     import msgpack
@@ -83,6 +96,12 @@ def synthetic_pipeline(root):
     source = root/'source'
     source.mkdir()
     schema,rows,manifest = fixture(source)
+    # More than512 points makes epoch changes observable in worker tests.
+    env = lmdb.open(str(source/'radar_pc.lmdb'),subdir=False,map_size=8*1024*1024)
+    with env.begin(write=True) as tx:
+        for row in rows[:40]:
+            tx.put(row['source_key'].encode(),pack_rpc(np.arange(2800,dtype=np.float32).reshape(700,4)))
+    env.close()
     schema['data_kind'] = 'synthetic'
     schema['source_provenance'] = {'package_id':'synthetic_contract_fixture','upstream_commit':'0'*40,
        'serializer_sha256':'synthetic_fixture','calibration_sha256':'synthetic_fixture','rpc_preprocessing':'synthetic_fixture'}
@@ -118,26 +137,91 @@ def synthetic_pipeline(root):
     assert draft['status']=='not_verified' and draft['count']==120
     audited = audit(source,root/'audit',schema_path,manifest,joint_path,coord_path)
     assert audited['status']=='verified' and audited['data_kind']=='synthetic'
+    assert audited['annotation_semantics_verified'] is False
+    phantom = [dict(r) for r in rows]
+    phantom[-1].update(source_key='[3, 1, 40]', source_frame_id=40, time_s=40/12.)
+    phantom_path = root/'phantom.jsonl'
+    phantom_path.write_text(''.join(json.dumps(r)+'\n' for r in phantom))
+    raises(lambda:audit(source,root/'audit_phantom',schema_path,phantom_path,joint_path,coord_path))
+    for name in ('params', 'calib', 'indicator'):
+        env = lmdb.open(str(source/(name+'.lmdb')),subdir=False,map_size=8*1024*1024)
+        with env.begin(write=True) as tx:
+            key = rows[0]['source_key'].encode()
+            value = tx.get(key)
+            tx.delete(key)
+            tx.put(b'[99, 1, 0]',value)
+        env.close()
+        raises(lambda:audit(source,root/('audit_missing_'+name),schema_path,manifest,joint_path,coord_path))
+        env = lmdb.open(str(source/(name+'.lmdb')),subdir=False,map_size=8*1024*1024)
+        with env.begin(write=True) as tx:
+            tx.delete(b'[99, 1, 0]')
+            tx.put(key,value)
+        env.close()
+
+    env = lmdb.open(str(source/'indicator.lmdb'),subdir=False,map_size=8*1024*1024)
+    with env.begin(write=True) as tx:
+        saved = list(tx.cursor())
+        for key, _ in saved:
+            tx.delete(key)
+    env.close()
+    raises(lambda:audit(source,root/'audit_empty',schema_path,manifest,joint_path,coord_path))
+    env = lmdb.open(str(source/'indicator.lmdb'),subdir=False,map_size=8*1024*1024)
+    with env.begin(write=True) as tx:
+        for key, value in saved:
+            tx.put(key,value)
+    env.close()
     audited_manifest = root/'audit'/'frames.jsonl'
     target_dir = root/'targets'
     target_info = export_targets(source,audited_manifest,target_dir,export_path,joint_path,coord_path)
     assert target_info['data_kind']=='synthetic' and target_info['invalid_target_frames']==0
+    sensor_dataset = M4HumanCausalSensorDataset(source,audited_manifest,schema,'train',training=True)
+    training_dataset = EncoderTrainingDataset(sensor_dataset,target_dir)
+    assert not sensor_dataset._epoch.is_shared()
+    loader = worker_equivalence(training_dataset)
+    assert sensor_dataset._epoch.is_shared()
+    before = next(iter(loader))['sensor']['rpc_m']
+    sensor_dataset.set_epoch(1)
+    actual = next(iter(loader))['sensor']['rpc_m']
+    expected = collate_samples([training_dataset[0],training_dataset[1]])['sensor']['rpc_m']
+    assert torch.equal(actual,expected) and not torch.equal(actual,before)
+    assert training_dataset.targets.__getstate__()['arrays'] == {}
+    del loader
+    sensor_dataset.reader.close()
+
     config = yaml.safe_load(Path('eksperimen_model/configs/m4human_encoder.yaml').read_text())
     config['data_kind']='synthetic'
     config['paths'].update(dataset_root=str(source),schema=str(schema_path),frame_manifest=str(audited_manifest),
                            target_dir=str(target_dir),joint_map=str(joint_path),coordinate_audit=str(coord_path),
                            audit_report=str(root/'audit'/'audit_report.json'))
-    config['training'].update(precision='fp32',micro_batch=8,accumulation=1,epochs_max=1,diagnostic_samples=2)
+    config['training'].update(precision='fp32',micro_batch=8,accumulation=1,effective_batch=8,epochs_max=1,diagnostic_samples=2,ram_reserve_mib=1)
     trained = train(config,root/'encoder_run',device='cpu',mode='smoke')
     assert trained['scientific_freeze_eligible'] is False
     state_dir = root/'extracted_states'
     target_dir.rename(root/'targets_offline')
-    states = extract(config,root/'encoder_run'/'best.pt',state_dir,'train','cpu',allow_debug=True)
+    states = extract(config,root/'encoder_run'/'best.pt',state_dir,'train','cpu',allow_debug=True,batch_size=1)
+    batched_state_dir = root/'extracted_states_batch4'
+    batched_states = extract(config,root/'encoder_run'/'best.pt',batched_state_dir,'train','cpu',allow_debug=True,batch_size=4)
+    # Both cache writes run with offline targets absent; fp32 batch tolerance3e-6.
+    assert states['lineage'] == batched_states['lineage']
+    assert states['count'] == batched_states['count']
+    assert (state_dir/'manifest.jsonl').read_bytes() == (batched_state_dir/'manifest.jsonl').read_bytes()
+    for name in ('P_enc','r_enc','f_enc','time_s','sensor_valid'):
+        single = np.load(state_dir/(name+'.npy'),allow_pickle=False)
+        batched = np.load(batched_state_dir/(name+'.npy'),allow_pickle=False)
+        assert single.shape == batched.shape and single.dtype == batched.dtype, name
+        if name in ('time_s','sensor_valid'):
+            assert np.array_equal(single,batched), name
+        else:
+            assert np.allclose(single,batched,atol=3e-6,rtol=3e-6), name
     (root/'targets_offline').rename(target_dir)
     assert states['data_kind']=='synthetic' and states['scientific_eligible'] is False
     raises(lambda:EncodedStateWindowDataset(state_dir))
     windows = EncodedStateWindowDataset(state_dir,targets_dir=target_dir,allow_debug=True)
     assert len(windows)==1 and windows[0]['targets']['joint_global_m'].shape==(32,22,3)
+    state_loader = worker_equivalence(windows)
+    assert windows.__getstate__()['arrays'] == {}
+    assert isinstance(pickle.loads(pickle.dumps(windows))[0]['sensor']['f_enc'],torch.Tensor)
+    del state_loader
     with (state_dir/'f_enc.npy').open('r+b') as handle:
         handle.seek(-1,2)
         byte=handle.read(1)
@@ -180,6 +264,8 @@ def main():
         assert len(clean)==1 and count['nonfinite']==1 and count['sentinel']==1
         leaked = [dict(rows[0]),dict(rows[40],subject_id=1,source_key='[1, 1, 0]')]
         raises(lambda:validate_frames(leaked))
+        interleaved = [rows[0],rows[40],rows[1],rows[41]]
+        raises(lambda:validate_frames(interleaved))
         raises(lambda:RPCOnlyReader(root/'absent',schema),FileNotFoundError)
         before = hashlib.sha256((root/'radar_pc.lmdb').read_bytes()).hexdigest()
         reader = RPCOnlyReader(root,schema)
@@ -279,9 +365,18 @@ def main():
         windows = EncodedStateWindowDataset(state,allow_debug=True)
         assert len(windows)==1 and windows[0]['sensor']['P_enc_relative_m'].shape==(32,22,3)
         assert len(windows[0]['provenance']['context_source_frames'])==32
+        original_manifest = (state/'manifest.jsonl').read_text()
+        state_rows[1]['segment_id'] = 'interleaved_segment'
+        (state/'manifest.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in state_rows))
+        metadata = json.loads((state/'metadata.json').read_text())
+        metadata['manifest_hash'] = file_sha256(state/'manifest.jsonl')
+        atomic_json(state/'metadata.json',metadata,overwrite=True)
+        raises(lambda:EncodedStateWindowDataset(state,allow_debug=True))
+        (state/'manifest.jsonl').write_text(original_manifest)
+
         ds.reader.close()
         pipeline = synthetic_pipeline(root)
-        print(json.dumps({'data_kind':'synthetic','status':'passed','checks':['bounded_serializers','endianness','safe_keys','immutable_flat_lmdb_spawn','split_context','sampling_permutation','masked_pooling','head_gradients','tiny_overfit','coordinate_units','strict_checkpoint','metric_recomputation','state_windows'],
+        print(json.dumps({'data_kind':'synthetic','status':'passed','checks':['bounded_serializers','endianness','safe_keys','immutable_flat_lmdb_spawn','split_context','sampling_permutation','masked_pooling','head_gradients','tiny_overfit','coordinate_units','strict_checkpoint','metric_recomputation','state_windows','exact_source_metadata_keys','interleaved_segments_rejected','spawn_targets_states','persistent_worker_epoch','target_absent_sensor_extraction','encoder_extraction_batch1_batch4_fp32_parity_3e-6'],
                           'parameter_count':sum(p.numel() for p in model.parameters()),'tiny_overfit_loss_initial':initial,'tiny_overfit_loss_final':final,
                           'synthetic_pipeline':pipeline,'real_data_gates':'not_run'},indent=2))
 

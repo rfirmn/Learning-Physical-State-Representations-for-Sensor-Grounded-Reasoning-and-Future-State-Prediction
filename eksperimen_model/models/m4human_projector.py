@@ -54,6 +54,7 @@ class FrozenM4HumanLanguage(nn.Module):
         self.projector = M4HumanPhysicalProjectorV1(llm.config.hidden_size)
         self.max_prefix_tokens = max_prefix_tokens
         self.max_total_tokens = max_total_tokens
+        self.checkpoint_language = False
         for parameter in llm.parameters():
             parameter.requires_grad_(False)
         if tokenizer.pad_token_id is None or tokenizer.eos_token_id is None:
@@ -136,8 +137,18 @@ class FrozenM4HumanLanguage(nn.Module):
 
     def forward(self, samples):
         inputs, labels = self.assemble(samples, training=True)
-        outputs = self.llm(**inputs, use_cache=False)
-        return answer_only_loss(outputs.logits, labels)
+        if self.training and self.checkpoint_language:
+            from torch.utils.checkpoint import checkpoint
+            # Frozen language parameters stay in eval mode. Checkpoint the input
+            # gradient graph directly; HF's training-only flag would do nothing.
+            def language_logits(embeddings, attention, positions):
+                return self.llm(inputs_embeds=embeddings, attention_mask=attention,
+                                position_ids=positions, use_cache=False).logits
+            logits = checkpoint(language_logits, inputs['inputs_embeds'], inputs['attention_mask'],
+                                inputs['position_ids'], use_reentrant=False)
+        else:
+            logits = self.llm(**inputs, use_cache=False).logits
+        return answer_only_loss(logits, labels)
 
     @torch.no_grad()
     def reference_generate(self, samples, max_new_tokens=64, text_only=False):
@@ -206,5 +217,8 @@ def load_frozen_qwen(config, device, precision="fp16_amp_grad_scaler"):
         raise ValueError("Transformers runtime differs from pinned config")
     tokenizer = AutoTokenizer.from_pretrained(config["model"], revision=revision, trust_remote_code=False)
     dtype = {"fp16_amp_grad_scaler": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}[precision]
-    llm = AutoModelForCausalLM.from_pretrained(config["model"], revision=revision, trust_remote_code=False, use_safetensors=True, torch_dtype=dtype, attn_implementation="eager").to(device)
+    attention = config.get('attention_backend', 'eager')
+    if attention not in ('eager', 'sdpa'):
+        raise ValueError('attention_backend must be eager or native PyTorch sdpa')
+    llm = AutoModelForCausalLM.from_pretrained(config["model"], revision=revision, trust_remote_code=False, use_safetensors=True, torch_dtype=dtype, attn_implementation=attention).to(device)
     return FrozenM4HumanLanguage(llm, tokenizer).to(device)

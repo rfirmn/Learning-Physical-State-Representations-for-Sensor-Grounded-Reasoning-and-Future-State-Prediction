@@ -12,8 +12,8 @@ seed: 42
 pelvis_index: 0
 max_gap_s: null
 learning_rate: 0.0003
-micro_batch: 1
-accumulation: 32
+micro_batch: 128
+accumulation: 1
 successful_updates: null
 train_stride: 8
 val_stride: 16
@@ -29,15 +29,27 @@ lineage:
   split_hash: null
   recipe_hash: null
   encoder_hash: null
-effective_batch: 32
-eval_batch_size: 4
-workers: 0
-cpu_threads: 1
-prefetch_factor: 2
-persistent_workers: false
+effective_batch: 128
+eval_batch_size: 128
+workers: 4
+cpu_threads: 4
+prefetch_factor: 16
+persistent_workers: true
 pin_memory: true
 non_blocking: true
 multiprocessing_context: spawn
-ram_reserve_mib: 2048
-vram_reserve_mib: 1024
+performance_policy:
+  status: unmeasured_capacity_candidate
+  target_hardware: RTX 3060 12 GB; system RAM16GB
+  effective_batch: 128
+  batch_policy: explicit_new_protocol_requires_validation
+  precision_gate: requires_fp32_parity_and_stability
+  selection: measured_memory_capacity_finite_gradients_and_validation_quality
+  rationale: larger_microbatch_and_64_prefetched_batches
+  resource_policy: retain_RAM128MiB_CUDA_headroom128MiB; candidate_requires_actual_measurement
+  original_effective_batch: 32
+  objective: maximize_RAM_usage_and_physical_batch_capacity
+  prefetched_batch_capacity: 64
+ram_reserve_mib: 128
+vram_reserve_mib: 128
 resource_poll_ms: 250

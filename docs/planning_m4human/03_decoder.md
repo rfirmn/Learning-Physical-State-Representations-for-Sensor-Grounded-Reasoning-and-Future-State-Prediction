@@ -1,6 +1,6 @@
 # 03 — Decoder Fisik: Supervisi Token Akhir dan Pembuktian Pelestarian Kinematik
 
-Versi kontrak: `m4human_kinetok_v3`. Revisi: 4 Oktober 2026. Status: rencana penelitian/implementasi, bukan hasil training atau audit dataset. Acuan: [proposal](../proposal_riset_terbaru.md), [data dan encoder](01_encoder.md), [backbone gerak dan tokenizer](02_dynamic_model.md), [alignment bahasa](04_llm_layer.md), dan [evaluasi](05_evaluasi_testing.md). Semua nama model di sini adalah usulan implementasi lokal, bukan release opensource yang telah siap dijalankan.
+Versi kontrak: `m4human_kinetok_v3`. Revisi: 6 Oktober 2026. Status: protokol penelitian dengan implementasi lokal; bukan hasil training atau audit dataset nyata. Acuan: [proposal](../proposal_riset_terbaru.md), [data dan encoder](01_encoder.md), [backbone gerak dan tokenizer](02_dynamic_model.md), [alignment bahasa](04_llm_layer.md), dan [evaluasi](05_evaluasi_testing.md). Nama model di sini adalah implementasi lokal; keberadaan kode tidak menjamin scientific gates atau resource nyata telah lulus.
 
 ## 1. Tujuan, hipotesis, dan batas kontribusi
 
@@ -317,7 +317,7 @@ EvidenceRecord:
   uncertainty=null  # sampai benar-benar dikalibrasi
 ```
 
-Evidence_support menunjuk label_support yang sama. Valid fraction bukan posterior. Attach predicted evidence tidak menimpa raw LLM answer; rule correction/oracle adalah kondisi terpisah. Angka yang diucapkan LLM bukan otomatis ukuran fisik sensor.
+Pada label GT, evidence_support menyimpan actual support recipe yang sama dengan label_support; interval waktu query tetap dibedakan dari subset frame valid tersebut. Valid fraction bukan posterior. Attach predicted evidence tidak menimpa raw LLM answer; rule correction/oracle adalah kondisi terpisah. Angka yang diucapkan LLM bukan otomatis ukuran fisik sensor.
 
 ## 10. Token U, probes independen, dan kontrol
 
@@ -466,3 +466,11 @@ Kunci tasks/thresholds/budgets/splits/selection/parser/toleransi efek praktis se
 Hasil dibaca berlapis: apakah informasi tersedia pada M, apakah kompresi/proposed treatment mengubah readability U, lalu apakah frozen LLM memanfaatkannya. Physical preservation tanpa QA gain adalah hasil terbatas; baseline tanpa gap berarti dugaan bottleneck tidak didukung pada kondisi itu. Negative result sah hanya bila target reliable, training memadai, comparator adil dan uncertainty cukup informatif. Bug/optimasi gagal/schema salah →inconclusive, bukan penolakan hipotesis.
 
 Handoff 03: audited immutable positions + derivative recipe, shared scales/masks/task registry, full-H physical checkpoint, fixed H cache, paired trained tokenizers/fidelity/aux heads, independent U probes, provenance dan actual profile. Handoff 04 hanya U+sensor masks/time/provenance serta frozen hashes; bukan GT/evidence jawaban. Klaim dibatasi pada kinematika/tasks yang teruji, bukan seluruh fisika manusia.
+
+## Pembaruan implementasi — 6 Oktober 2026
+
+Kinematics recipe, full-H fidelity/readout, independent probes, QA generator dan metric recomputation tersedia dalam implementasi lokal. Status ini tidak menyatakan target anatomi, calibration atau kualitas label nyata sudah diaudit. Target/source lineage tetap terikat upstream; cache baru diperlukan jika bytes sumber berubah.
+
+`observation_interval_s` adalah seluruh window32. `task_interval_s` mulai endpoint keenam (indeks6) sampai akhir setelah derivative warmup. `label_support`/`evidence_support` adalah indeks relatif frame yang lolos mask/guard recipe, bukan seluruh interval nominal. Evidence prediksi mengikuti interval query dan recipe yang sama; dukungan GT hanya untuk audit label/evaluasi, tidak disisipkan sebagai input LLM. `unknown`, excluded/undefined dan numeric evidence undefined tetap berbeda. RPC merupakan input P0; RT/radial/onset tetap ablation optional ber-reliability gate, bukan Doppler otomatis.
+
+Validator streaming recomputation, checkpoint hashes dan run packaging tersedia; completion LF UTF-8 kompatibel dengan CRLF historis, sementara source/cache/checkpoint lineage tetap hash bytes. Bundle smoke historis yang kehilangan best/last/predictions tetap incomplete. [Runbook §8](../m4human_development_runbook.md#8-bundle-newline-dan-bukti-historis).

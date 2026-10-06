@@ -1,0 +1,56 @@
+contract_version: m4human_kinetok_v3
+data_kind: m4human
+dataset_root: datasets/m4human
+source_cache: derived_data/m4human/m4human_kinetok_v3/H
+normalizer_path: docs/report_training/RUN_M4HUMAN_REPLACE_TIMESTAMP_M/M/normalizers.json
+output_dir: docs/report_training/RUN_M4HUMAN_REPLACE_TIMESTAMP_C_K16
+paired_contract_path: derived_data/m4human/m4human_kinetok_v3/contracts/C_K16_matched_ram_capacity_B64.json
+scientific_gates_passed: false
+precision_gate_passed: false
+precision: fp16_amp
+device: cuda
+seed: 42
+pelvis_index: 0
+max_gap_s: null
+K: 16
+lambda_aux: 1.0
+learning_rate: 0.0003
+micro_batch: 64
+accumulation: 1
+successful_updates: null
+query_chunk: 128
+diagnostic_windows: 2
+joint_map: null
+recipe: null
+lineage:
+  schema_hash: null
+  coordinate_hash: null
+  joint_map_hash: null
+  split_hash: null
+  recipe_hash: null
+  encoder_hash: null
+  motion_hash: null
+effective_batch: 64
+eval_batch_size: 64
+workers: 4
+cpu_threads: 4
+prefetch_factor: 16
+persistent_workers: true
+pin_memory: true
+non_blocking: true
+multiprocessing_context: spawn
+performance_policy:
+  status: unmeasured_capacity_candidate
+  target_hardware: RTX 3060 12 GB; system RAM16GB
+  effective_batch: 64
+  batch_policy: explicit_new_protocol_requires_validation
+  precision_gate: requires_fp32_parity_and_stability
+  selection: measured_memory_capacity_finite_gradients_and_validation_quality
+  rationale: larger_microbatch_and_64_prefetched_batches
+  resource_policy: retain_RAM128MiB_CUDA_headroom128MiB; candidate_requires_actual_measurement
+  original_effective_batch: 16
+  objective: maximize_RAM_usage_and_physical_batch_capacity
+  prefetched_batch_capacity: 64
+ram_reserve_mib: 128
+vram_reserve_mib: 128
+resource_poll_ms: 250
