@@ -13,3 +13,10 @@ Tabel ini mendokumentasikan seluruh riwayat eksperimen training yang telah dijal
 | `RUN_DYNAMICS_20260915_132934` | 2026-09-15 14:40 | dynamics_temporal_transformer | 45 | 0.6281 | **202.8 mm (Δ=+9.4 mm)** | [Lihat Laporan](RUN_DYNAMICS_20260915_132934/report.md) |
 | `STAGE4_PROJECTOR_20260917` | 2026-09-17 20:41 | projector_qwen2.5_1.5b | 5 | 0.2607 | **Val Loss: 0.9782 (Depth MAE: 1.28m)** | [Lihat Analisis Lengkap](../analisis_hasil_evaluasi_tahap4.md) |
 
+
+
+## M4Human v3 runs
+
+| Run | Stage | Status | Analysis ready | Report |
+|---|---|---|---|---|
+| RUN_M4HUMAN_SMOKE | E | complete | True | [Report](RUN_M4HUMAN_SMOKE/report.md) |

@@ -39,14 +39,44 @@ class ManifestSequence(Sequence):
                 seen.add(uid)
                 offsets.append(offset)
         self.offsets = np.asarray(offsets,dtype=np.int64)
+        self._handle = None
+        self._handle_pid = None
+
+    def _get_handle(self):
+        pid = os.getpid()
+        if self._handle is None or self._handle_pid != pid or self._handle.closed:
+            self._handle = self.path.open('rb')
+            self._handle_pid = pid
+        return self._handle
+
     def __len__(self):
         return len(self.offsets)
+
     def __getitem__(self,index):
         if isinstance(index,slice):
             return [self[i] for i in range(*index.indices(len(self)))]
-        with self.path.open('rb') as handle:
-            handle.seek(int(self.offsets[index]))
-            return json.loads(handle.readline())
+        handle = self._get_handle()
+        handle.seek(int(self.offsets[index]))
+        return json.loads(handle.readline())
+
+    def close(self):
+        if self._handle is not None and not self._handle.closed:
+            self._handle.close()
+            self._handle = None
+
+    def __del__(self):
+        self.close()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['_handle'] = None
+        state['_handle_pid'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._handle = None
+        self._handle_pid = None
 
 
 class ManifestView(Sequence):

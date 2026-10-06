@@ -1,0 +1,430 @@
+{
+  "checkpoint_hash": "6942fc8350f6a2080ef93717348fdbc22d8e106e9d313c4a75e3e5797a3710ed",
+  "policy": "first_fixed_eligible_validation_anchors_before_training",
+  "records": [
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:0",
+        "m4human_processed_v1:15:1:1",
+        "m4human_processed_v1:15:1:2",
+        "m4human_processed_v1:15:1:3"
+      ],
+      "counts": [
+        {
+          "n_clean": 430,
+          "n_raw": 430,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 545,
+          "n_raw": 545,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 405,
+          "n_raw": 405,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 392,
+          "n_raw": 392,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 392,
+      "frame_uid": "m4human_processed_v1:15:1:3",
+      "n_clean": 392,
+      "n_raw": 392,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 3,
+      "source_key": "[15, 1, 3]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.25,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:1",
+        "m4human_processed_v1:15:1:2",
+        "m4human_processed_v1:15:1:3",
+        "m4human_processed_v1:15:1:4"
+      ],
+      "counts": [
+        {
+          "n_clean": 545,
+          "n_raw": 545,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 405,
+          "n_raw": 405,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 392,
+          "n_raw": 392,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 449,
+          "n_raw": 449,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 449,
+      "frame_uid": "m4human_processed_v1:15:1:4",
+      "n_clean": 449,
+      "n_raw": 449,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 4,
+      "source_key": "[15, 1, 4]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.3333333333333333,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:2",
+        "m4human_processed_v1:15:1:3",
+        "m4human_processed_v1:15:1:4",
+        "m4human_processed_v1:15:1:5"
+      ],
+      "counts": [
+        {
+          "n_clean": 405,
+          "n_raw": 405,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 392,
+          "n_raw": 392,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 449,
+          "n_raw": 449,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 420,
+          "n_raw": 420,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 420,
+      "frame_uid": "m4human_processed_v1:15:1:5",
+      "n_clean": 420,
+      "n_raw": 420,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 5,
+      "source_key": "[15, 1, 5]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.4166666666666667,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:3",
+        "m4human_processed_v1:15:1:4",
+        "m4human_processed_v1:15:1:5",
+        "m4human_processed_v1:15:1:6"
+      ],
+      "counts": [
+        {
+          "n_clean": 392,
+          "n_raw": 392,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 449,
+          "n_raw": 449,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 420,
+          "n_raw": 420,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 508,
+          "n_raw": 508,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 508,
+      "frame_uid": "m4human_processed_v1:15:1:6",
+      "n_clean": 508,
+      "n_raw": 508,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 6,
+      "source_key": "[15, 1, 6]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.5,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:4",
+        "m4human_processed_v1:15:1:5",
+        "m4human_processed_v1:15:1:6",
+        "m4human_processed_v1:15:1:7"
+      ],
+      "counts": [
+        {
+          "n_clean": 449,
+          "n_raw": 449,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 420,
+          "n_raw": 420,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 508,
+          "n_raw": 508,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 448,
+          "n_raw": 448,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 448,
+      "frame_uid": "m4human_processed_v1:15:1:7",
+      "n_clean": 448,
+      "n_raw": 448,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 7,
+      "source_key": "[15, 1, 7]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.5833333333333334,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:5",
+        "m4human_processed_v1:15:1:6",
+        "m4human_processed_v1:15:1:7",
+        "m4human_processed_v1:15:1:8"
+      ],
+      "counts": [
+        {
+          "n_clean": 420,
+          "n_raw": 420,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 508,
+          "n_raw": 508,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 448,
+          "n_raw": 448,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 450,
+          "n_raw": 450,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 450,
+      "frame_uid": "m4human_processed_v1:15:1:8",
+      "n_clean": 450,
+      "n_raw": 450,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 8,
+      "source_key": "[15, 1, 8]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.6666666666666666,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:6",
+        "m4human_processed_v1:15:1:7",
+        "m4human_processed_v1:15:1:8",
+        "m4human_processed_v1:15:1:9"
+      ],
+      "counts": [
+        {
+          "n_clean": 508,
+          "n_raw": 508,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 448,
+          "n_raw": 448,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 450,
+          "n_raw": 450,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 434,
+          "n_raw": 434,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 434,
+      "frame_uid": "m4human_processed_v1:15:1:9",
+      "n_clean": 434,
+      "n_raw": 434,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 9,
+      "source_key": "[15, 1, 9]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.75,
+      "time_source": "nominal_frame_index"
+    },
+    {
+      "action_id": 1,
+      "context_source_frames": [
+        "m4human_processed_v1:15:1:7",
+        "m4human_processed_v1:15:1:8",
+        "m4human_processed_v1:15:1:9",
+        "m4human_processed_v1:15:1:10"
+      ],
+      "counts": [
+        {
+          "n_clean": 448,
+          "n_raw": 448,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 450,
+          "n_raw": 450,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 434,
+          "n_raw": 434,
+          "nonfinite": 0,
+          "sentinel": 0
+        },
+        {
+          "n_clean": 553,
+          "n_raw": 553,
+          "nonfinite": 0,
+          "sentinel": 0
+        }
+      ],
+      "finite_point_count": 553,
+      "frame_uid": "m4human_processed_v1:15:1:10",
+      "n_clean": 553,
+      "n_raw": 553,
+      "nonfinite": 0,
+      "recording_id": "m4human_processed_v1:15:1",
+      "schema_valid": true,
+      "segment_id": "m4human_processed_v1:15:1:segment833",
+      "sensor_frame_valid": true,
+      "sentinel": 0,
+      "source_frame_id": 10,
+      "source_key": "[15, 1, 10]",
+      "source_manifest_version": "unverified_draft_v1",
+      "source_time_s": null,
+      "split": "val",
+      "subject_id": 15,
+      "time_s": 0.8333333333333334,
+      "time_source": "nominal_frame_index"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "config_hash": "8aa16ff63f32646f5324cb3d7ecbdfb8c707c1d6ddfffd5f83aca3cadcbd4595",
+  "contract_version": "m4human_kinetok_v3",
+  "data_kind": "m4human",
+  "environment": {
+    "cuda": "12.4",
+    "device": "NVIDIA GeForce RTX 3060",
+    "git_commit": "574841a42615a723460b10d1389ee1221d4c0d16",
+    "git_diff": "diff --git a/eksperimen_model/datasets/m4human_dataset.py b/eksperimen_model/datasets/m4human_dataset.py\nindex 3a6f67b..88bbd08 100644\n--- a/eksperimen_model/datasets/m4human_dataset.py\n+++ b/eksperimen_model/datasets/m4human_dataset.py\n@@ -39,14 +39,44 @@ class ManifestSequence(Sequence):\n                 seen.add(uid)\n                 offsets.append(offset)\n         self.offsets = np.asarray(offsets,dtype=np.int64)\n+        self._handle = None\n+        self._handle_pid = None\n+\n+    def _get_handle(self):\n+        pid = os.getpid()\n+        if self._handle is None or self._handle_pid != pid or self._handle.closed:\n+            self._handle = self.path.open('rb')\n+            self._handle_pid = pid\n+        return self._handle\n+\n     def __len__(self):\n         return len(self.offsets)\n+\n     def __getitem__(self,index):\n         if isinstance(index,slice):\n             return [self[i] for i in range(*index.indices(len(self)))]\n-        with self.path.open('rb') as handle:\n-            handle.seek(int(self.offsets[index]))\n-            return json.loads(handle.readline())\n+        handle = self._get_handle()\n+        handle.seek(int(self.offsets[index]))\n+        return json.loads(handle.readline())\n+\n+    def close(self):\n+        if self._handle is not None and not self._handle.closed:\n+            self._handle.close()\n+            self._handle = None\n+\n+    def __del__(self):\n+        self.close()\n+\n+    def __getstate__(self):\n+        state = self.__dict__.copy()\n+        state['_handle'] = None\n+        state['_handle_pid'] = None\n+        return state\n+\n+    def __setstate__(self, state):\n+        self.__dict__.update(state)\n+        self._handle = None\n+        self._handle_pid = None\n \n \n class ManifestView(Sequence):\ndiff --git a/eksperimen_model/export_m4human_targets.py b/eksperimen_model/export_m4human_targets.py\nindex 3a55aac..e10d712 100644\n--- a/eksperimen_model/export_m4human_targets.py\n+++ b/eksperimen_model/export_m4human_targets.py\n@@ -182,7 +182,12 @@ def export_targets(root,manifest,output,config_path,joint_map_path,coordinate_pa\n                     'method':config['method'],'pelvis_index':joint_map['pelvis_index'], 'arrays':{name:file_sha256(temporary/(name+'.npy')) for name in fields},\n                     'manifest_hash':file_sha256(temporary/'manifest.jsonl')}\n         atomic_json(temporary/'metadata.json',metadata)\n+        for arr in arrays.values():\n+            if hasattr(arr, '_mmap') and arr._mmap is not None:\n+                arr._mmap.close()\n         del arrays\n+        import gc\n+        gc.collect()\n         temporary.rename(output)\n     finally:\n         engine.close()\ndiff --git a/eksperimen_model/extract_m4human_states.py b/eksperimen_model/extract_m4human_states.py\nindex c8f8e06..2bfb80b 100644\n--- a/eksperimen_model/extract_m4human_states.py\n+++ b/eksperimen_model/extract_m4human_states.py\n@@ -90,7 +90,12 @@ def extract(config,checkpoint,output_dir,split=None,device='cpu',allow_debug=Fal\n                     'encoder_hash_before':before,'encoder_hash_after':after,'split':split,\n                     'arrays':{name:file_sha256(temporary/(name+'.npy')) for name in fields},'manifest_hash':file_sha256(temporary/'manifest.jsonl')}\n         atomic_json(temporary/'metadata.json',metadata)\n+        for arr in arrays.values():\n+            if hasattr(arr, '_mmap') and arr._mmap is not None:\n+                arr._mmap.close()\n         del arrays\n+        import gc\n+        gc.collect()\n         temporary.rename(output)\n         return metadata\n     finally:",
+    "git_status": "M eksperimen_model/datasets/m4human_dataset.py\n M eksperimen_model/export_m4human_targets.py\n M eksperimen_model/extract_m4human_states.py\n?? docs/report_training/RUN_M4HUMAN_SMOKE/\n?? eksperimen_model/configs/m4human_encoder_run.yaml",
+    "numpy": "2.5.2",
+    "platform": "Windows-11-10.0.22631-SP0",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "torch": "2.6.0+cu124",
+    "untracked_code_sha256": {
+      "eksperimen_model\\configs\\m4human_encoder_run.yaml": "c85f92d8226a73bff58044ed5a3660b262f86abf07653d378df8fa73a5dfa782"
+    }
+  },
+  "lineage": {
+    "coordinate_hash": "4fc10feb23d2d88e26a7490f9f3195124f17060fd874a9c10df132e6aa5004fa",
+    "frame_manifest_hash": "75c67266c1ee9a85dc1516d0ff14c8f63a67c565eea96d8acaa709d4c24eac6b",
+    "joint_map_hash": "da1e285b0059cb3d86980e98d4110efe1a5ccb3f03f100e41a46028b819bef45",
+    "normalizer_hash": "f30fb7ce94e15eade731c0ee5275802c398109800d6c8e03eb320b0ecf4a3e3d",
+    "recipe_hash": "f48ff3cba3aff26fada4f31d5f2ed86288e8700dfa2b65b368dfbb2e4a5a9d8f",
+    "schema_hash": "a49d43d460d2c03ef99333f7ee742560e40e3bc0e91fe95f69141ed508ac2297",
+    "source_hash": "2a56fed5309d5ed0b7ebb76ab78008ba10db2fef273333b217575fb41a0010f0",
+    "split_hash": "75c67266c1ee9a85dc1516d0ff14c8f63a67c565eea96d8acaa709d4c24eac6b",
+    "target_hash": "071adf0249eb58667408c2718454b2456d874fe204517b7b099ae716ee8cd967"
+  },
+  "run_id": "RUN_M4HUMAN_SMOKE",
+  "stage": "E"
+}

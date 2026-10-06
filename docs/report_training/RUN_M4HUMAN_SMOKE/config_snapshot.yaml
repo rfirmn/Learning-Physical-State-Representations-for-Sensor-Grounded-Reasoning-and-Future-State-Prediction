@@ -1,0 +1,71 @@
+contract_version: m4human_kinetok_v3
+data_kind: m4human
+paths:
+  dataset_root: datasets/m4human
+  derived_root: D:/m4human_meta
+  schema: D:/m4human_meta/schema.json
+  frame_manifest: D:/m4human_meta/audit/frames.jsonl
+  target_dir: D:/m4human_meta/targets
+  joint_map: D:/m4human_meta/joint_map.json
+  coordinate_audit: D:/m4human_meta/coordinate_audit.json
+  audit_report: D:/m4human_meta/audit/audit_report.json
+data:
+  rpc_channels:
+  - x
+  - y
+  - z
+  - intensity
+  context_frames: 4
+  num_points: 512
+  nominal_hz: 12.0
+  augmentation: none
+encoder:
+  model_id: m4human_set_v2
+  initialization: scratch
+  joint_count: 22
+  feature_dim: 256
+training:
+  seed: 42
+  micro_batch: 4
+  accumulation: 4
+  optimizer: AdamW
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_optimizer_step_fraction: 0.05
+  learning_rate_min: 2.0e-06
+  epochs_max: 50
+  early_stop_patience: 8
+  clip_grad_norm: 1.0
+  smooth_l1_beta_m: 0.05
+  lambda_root: 1.0
+  lambda_bone: 0.0
+  precision: fp32
+  workers: 0
+  selection_metric: validation_mpjpe_global_m
+  root_quality_gate_m: null
+  diagnostic_samples: 8
+lineage:
+  schema_hash: a49d43d460d2c03ef99333f7ee742560e40e3bc0e91fe95f69141ed508ac2297
+  joint_map_hash: da1e285b0059cb3d86980e98d4110efe1a5ccb3f03f100e41a46028b819bef45
+  coordinate_hash: 4fc10feb23d2d88e26a7490f9f3195124f17060fd874a9c10df132e6aa5004fa
+  frame_manifest_hash: 75c67266c1ee9a85dc1516d0ff14c8f63a67c565eea96d8acaa709d4c24eac6b
+  source_hash: 2a56fed5309d5ed0b7ebb76ab78008ba10db2fef273333b217575fb41a0010f0
+  split_hash: 75c67266c1ee9a85dc1516d0ff14c8f63a67c565eea96d8acaa709d4c24eac6b
+  recipe_hash: f48ff3cba3aff26fada4f31d5f2ed86288e8700dfa2b65b368dfbb2e4a5a9d8f
+  target_hash: 071adf0249eb58667408c2718454b2456d874fe204517b7b099ae716ee8cd967
+  normalizer_hash: f30fb7ce94e15eade731c0ee5275802c398109800d6c8e03eb320b0ecf4a3e3d
+normalizer:
+  mean:
+  - -0.154860507657518
+  - 2.601293842013594
+  - 0.9614525288672257
+  - 0.4229213762115631
+  std:
+  - 0.784448476072484
+  - 0.6749255251186251
+  - 0.5957654145896545
+  - 0.2715934262310014
+  count: 226791540
+  scope: train_only_all_clean_returns
+  intensity_transform: signed_log1p
+  preprocessing_version: canonical_sha256_v1

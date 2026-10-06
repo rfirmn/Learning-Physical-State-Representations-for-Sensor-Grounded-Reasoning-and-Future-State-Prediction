@@ -1,0 +1,92 @@
+{
+  "analysis_ready": true,
+  "artifact_issues": [],
+  "checkpoint_sha256": "6942fc8350f6a2080ef93717348fdbc22d8e106e9d313c4a75e3e5797a3710ed",
+  "contract_version": "m4human_kinetok_v3",
+  "data_kind": "m4human",
+  "elapsed_s": 1211.7649999999994,
+  "loss_curve_created": true,
+  "resources": {
+    "cuda_peak_allocated_bytes": 95119872,
+    "cuda_peak_reserved_bytes": 130023424,
+    "process_peak_rss_bytes": 7088918528
+  },
+  "root_gate": {
+    "passed": null,
+    "threshold_m": null
+  },
+  "run_id": "RUN_M4HUMAN_SMOKE",
+  "scientific_freeze_eligible": false,
+  "selected_epoch": 0,
+  "stage": "E",
+  "status": "complete",
+  "successful_updates": 28646,
+  "test_status": "not_opened",
+  "validation": {
+    "global": {
+      "count": 1491578,
+      "error_sum": 187812.71703863144,
+      "mean_m": 0.12591545131306003
+    },
+    "global_per_joint": {
+      "count": [
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799,
+        67799
+      ],
+      "error_sum": [
+        5670.467651735991,
+        6029.764413610101,
+        6026.030529718846,
+        6061.556443508714,
+        8483.769045390189,
+        8302.906052496284,
+        6306.049942348152,
+        9727.775435492396,
+        9798.550449594855,
+        6389.226078443229,
+        10805.470043756068,
+        10692.384156074375,
+        6292.13987782225,
+        6068.016937684268,
+        6158.891106631607,
+        7041.028648234904,
+        7770.677630148828,
+        7601.875779129565,
+        10866.426930654794,
+        11631.736029490829,
+        14604.810584135354,
+        15483.163299761713
+      ]
+    },
+    "relative": {
+      "count": 1423779,
+      "error_sum": 140749.41990613937,
+      "mean_m": 0.09885622691874187
+    },
+    "root": {
+      "count": 67799,
+      "error_sum": 5670.467649325728,
+      "mean_m": 0.08363644964270459
+    }
+  }
+}

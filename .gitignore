@@ -45,10 +45,12 @@ eksperimen_model/checkpoints/**/*.pt
 !eksperimen_model/checkpoints/**/.gitkeep
 
 # ==============================================================================
-# Datasets (Do NOT track 260,000 raw radar files in git)
+# Datasets (Do NOT track raw radar files or huge databases in git)
 # ==============================================================================
+*.lmdb
+*.lmdb-lock
 datasets/MM-Fi Dataset/filtered_mmwave/
-datasets/MM-Fi_features_v2/
+datasets/MM-Fi_features_*/
 datasets/MM-Fi_extracted_features/*
 datasets/MM-Fi_grounded_qa/*.jsonl
 datasets/m4human/
@@ -56,9 +58,16 @@ derived_data/m4human/
 derived/m4human/
 datasets/**/*.bin
 datasets/**/*.npy
+datasets/**/*.npz
 !datasets/**/.gitkeep
 !datasets/**/MMFi_action_segments.csv
 !datasets/**/qa_dataset_summary.json
+
+# ==============================================================================
+# Training Reports - Ignore Raw Large Prediction Dumps (>50-100MB)
+# (Keeps all report.md, index, metrics, loss curves, and diagnostic JSON intact)
+# ==============================================================================
+docs/report_training/**/predictions_*.jsonl
 
 # ==============================================================================
 # Temporary / Scratch / IDE / OS Files

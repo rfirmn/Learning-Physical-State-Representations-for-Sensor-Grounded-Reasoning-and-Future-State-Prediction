@@ -1,0 +1,42 @@
+contract_version: m4human_kinetok_v3
+data_kind: m4human
+paths:
+  dataset_root: datasets/m4human
+  derived_root: D:/m4human_meta
+  schema: D:/m4human_meta/schema.json
+  frame_manifest: D:/m4human_meta/audit/frames.jsonl
+  target_dir: D:/m4human_meta/targets
+  joint_map: D:/m4human_meta/joint_map.json
+  coordinate_audit: D:/m4human_meta/coordinate_audit.json
+  audit_report: D:/m4human_meta/audit/audit_report.json
+data:
+  rpc_channels: [x, y, z, intensity]
+  context_frames: 4
+  num_points: 512
+  nominal_hz: 12.0
+  augmentation: none
+encoder:
+  model_id: m4human_set_v2
+  initialization: scratch
+  joint_count: 22
+  feature_dim: 256
+training:
+  seed: 42
+  micro_batch: 4
+  accumulation: 4
+  optimizer: AdamW
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_optimizer_step_fraction: 0.05
+  learning_rate_min: 0.000002
+  epochs_max: 50
+  early_stop_patience: 8
+  clip_grad_norm: 1.0
+  smooth_l1_beta_m: 0.05
+  lambda_root: 1.0
+  lambda_bone: 0.0
+  precision: fp16_amp_with_grad_scaler
+  workers: 0
+  selection_metric: validation_mpjpe_global_m
+  root_quality_gate_m: null
+  diagnostic_samples: 8

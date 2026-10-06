@@ -1,0 +1,21 @@
+{
+  "metrics": {
+    "global": {
+      "count": 1491578,
+      "error_sum": 187812.7170150876,
+      "mean_m": 0.1259154512972755
+    },
+    "relative": {
+      "count": 1423779,
+      "error_sum": 140749.41993945837,
+      "mean_m": 0.09885622694214367
+    },
+    "root": {
+      "count": 67799,
+      "error_sum": 5670.467649474624,
+      "mean_m": 0.08363644964490072
+    }
+  },
+  "predictions_sha256": "c41500334fcd49e1a3ff0869949c81406644570d9d751ba2fd00377563809c6e",
+  "status": "verified"
+}

@@ -182,7 +182,12 @@ def export_targets(root,manifest,output,config_path,joint_map_path,coordinate_pa
                     'method':config['method'],'pelvis_index':joint_map['pelvis_index'], 'arrays':{name:file_sha256(temporary/(name+'.npy')) for name in fields},
                     'manifest_hash':file_sha256(temporary/'manifest.jsonl')}
         atomic_json(temporary/'metadata.json',metadata)
+        for arr in arrays.values():
+            if hasattr(arr, '_mmap') and arr._mmap is not None:
+                arr._mmap.close()
         del arrays
+        import gc
+        gc.collect()
         temporary.rename(output)
     finally:
         engine.close()
