@@ -1,0 +1,115 @@
+﻿pentilitian ini ingi menjawab pertanyaan utama ini:
+“Sejauh mana arsitektur penyelarasan representasi fisik yang diajukan memungkinkan frozen LLM melakukan penalaran berbasis kondisi saat ini dan prediksi keadaan masa depan dari sensor mmWave?”
+BAB I
+PENDAHULUAN
+
+
+   1. Latar Belakang
+Large Language Model (LLM) mencetak skor tinggi di berbagai benchmark bahasa, tetapi skor itu belum menjamin model paham keadaan dunia fisik. LLM bekerja pada simbol teks dan tidak punya jalur bawaan untuk mengecek apakah keluarannya cocok dengan apa yang diamati sensor; literatur menyebut persoalan ini symbol grounding problem. Penelitian ini tidak memakai klaim "pemahaman fisik" dalam arti filosofis. Istilah yang dipakai adalah sensor-grounded, dengan definisi operasional yang bisa diuji: jawaban model dianggap terhubung ke sensor bila lebih baik daripada jawaban yang hanya bersandar pada teks, bila informasi fisik yang ditanyakan memang bisa dibaca dari representasi sensornya, dan bila kualitas jawaban turun ketika sinyal sensor diganti secara terkontrol. Semua itu harus terbukti pada data uji yang sama dan pada subjek yang tidak pernah dilihat model saat pelatihan. Konsistensi dengan target fisik saja belum cukup, sebab model bisa menjawab benar lewat kebiasaan bahasa atau pola distribusi dataset. Kontrol penggantian sinyal pun hanya menunjukkan sensitivitas terhadap sensor, bukan bukti hubungan sebab-akibat yang penuh.
+Minat riset pada world model tumbuh dari keterbatasan yang sama. LeCun (2022) mengusulkan Joint Embedding Predictive Architecture (JEPA), yang memprediksi representasi abstrak keadaan masa depan di ruang laten, bukan piksel demi piksel. Penelitian ini meminjam alurnya (Observation → State → Dynamics → Prediction → Reasoning) hanya sebagai motivasi konseptual, tanpa mengklaim sistemnya sebagai implementasi JEPA atau general-purpose world model. Skalanya memang tak sebanding: V-JEPA 2 dilatih pada lebih dari satu juta jam video (Assran dkk., 2025), sedangkan penelitian ini berjalan di satu GPU konsumen dalam satu semester. Dari V-JEPA 2 hanya satu pelajaran yang diambil, yaitu bahwa representasi laten yang menyimpan keadaan dan dinamika fisik bisa dipakai pada tugas kontrol nyata. Pelajaran itu diuji di sini pada skala kecil, dengan radar gelombang milimeter (mmWave) dan gerak tubuh satu manusia sebagai domain fisiknya.
+Radar dipilih dibanding kamera karena dua hal. Radar tidak merekam wajah maupun tekstur kulit, sehingga lebih layak dipasang di kamar tidur atau ruang rehabilitasi; meski begitu, pola gerak dan gaya berjalan tetap bisa mengungkap identitas, jadi privasinya tidak mutlak. Radar juga relatif lebih tahan terhadap kondisi lingkungan yang buruk. Benchmark mmBody (Chen dkk., 2022) menunjukkan bahwa pada kondisi berasap dan gelap, kualitas rekonstruksi tubuh berbasis kamera merosot lebih tajam daripada radar, walau besarannya bergantung pada setting paper tersebut.
+Harganya, radar tidak memberi makna. Keluarannya berupa angka posisi, kecepatan Doppler, dan SNR sebagai indikator kualitas sinyal, jauh dari kalimat "orang itu mengangkat tangan". Sejumlah karya menyambungkan encoder sensor ke LLM lewat modul penyelaras kecil tanpa melatih ulang model bahasanya. SensorLLM (Li dkk., 2025) contohnya: encoder dan LLM beku, hanya penyelaras yang disetel, dan domainnya sensor wearable untuk pengenalan aktivitas. Penelitian ini mengikuti pola arsitektur yang sama, tetapi bekerja pada point cloud radar dengan target fisik yang kontinu. Bobot LLM dibekukan supaya setiap perubahan hasil bisa ditelusuri ke kualitas representasi sensor dan model dinamikanya. Keterbatasan memori GPU 12 GB menjadi alasan tambahan, ditambah pertimbangan rekayasa bahwa penyetelan LLM pada data sensor yang sempit berisiko merusak kemampuan bawaannya; risiko itu sendiri tidak diuji di sini.
+Penelitian ini memakai dataset MM-Fi (Yang dkk., 2023) dan bobot Point-MAE yang sudah dilatih pada ShapeNet (Pang dkk., 2022) sebagai inisialisasi encoder. Rancangan sistemnya terdiri dari empat bagian: encoder yang mengubah point cloud radar menjadi representasi laten keadaan tubuh, model dinamika yang memprediksi representasi itu untuk beberapa langkah waktu ke depan, proyektor yang menerjemahkan representasi ke ruang embedding bahasa, dan Qwen2.5-1.5B-Instruct yang dibekukan sebagai lapisan penalaran. Model dinamika memprediksi keadaan laten, bukan koordinat tubuh secara langsung; ketepatannya dinilai dengan membandingkan hasilnya terhadap target fisik yang terukur. Manfaat model dinamika diuji dengan pembanding paling sederhana: apakah prediksinya lebih berguna daripada mengasumsikan keadaan terakhir tidak berubah.
+Bab ini memaparkan rancangan dan pertanyaan penelitian, bukan hasil akhir. Sebagian tahap pipeline masih dalam pemulihan dan evaluasi, sehingga temuan yang menyangkut model dinamika dan penalaran LLM belum dilaporkan sebagai hasil final.
+   2. Rumusan Masalah
+* Sejauh mana representasi laten yang dipelajari dari point cloud radar mmWave memuat informasi konfigurasi tubuh manusia, dan apakah representasi itu cukup untuk memprediksi keadaan tubuh delapan langkah ke depan dengan lebih baik daripada asumsi bahwa keadaan tidak berubah?
+* Sejauh mana LLM yang bobotnya dibekukan sepenuhnya dapat menalar keadaan fisik saat ini dan keadaan masa depan dari representasi tersebut melalui proyektor, dan bukan semata dari pola linguistik pertanyaan?
+
+
+   3. Tujuan Penelitian
+Penelitian ini bertujuan menghasilkan representasi laten dari point cloud radar mmWave yang memuat konfigurasi tubuh manusia secara terbaca. Kualitas representasi itu dinilai dari kemampuannya menyimpan target fisik yang bermakna, bukan hanya dari galat estimasi pose yang dihasilkan pipeline. Dari representasi tersebut, penelitian ini memprediksi keadaan laten beberapa langkah ke depan, lalu menilai apakah prediksi model dinamika memberi manfaat terukur dibanding mengasumsikan keadaan terakhir tetap konstan. Kesimpulan yang dicari terbatas pada dataset, pembagian data, horizon prediksi, dan protokol yang dipakai.
+Penelitian ini juga bertujuan menghubungkan representasi tersebut ke LLM yang bobotnya dibekukan sepenuhnya, agar model dapat menalar keadaan tubuh saat ini dan masa depan. Ketergantungan jawaban pada sinyal sensor dinilai dengan membandingkannya terhadap model yang hanya melihat teks, serta lewat penurunan performa ketika sinyal sensor diacak atau dipertukarkan. Seluruh pengukuran berjalan pada subjek yang terpisah dari data pelatihan dan validasi, supaya kesimpulan tidak bergantung pada ciri subjek tertentu.
+
+
+   4. Batasan Masalah
+Tugas Akhir ini harus selesai dalam satu semester dengan satu unit GPU konsumen, sehingga ruang lingkupnya dibatasi secara eksplisit berikut alasan masing-masing.
+Modalitas sensor hanya radar mmWave point cloud dari dataset MM-Fi, dengan fitur posisi, kecepatan Doppler, dan SNR. RGB, depth, LiDAR, dan WiFi CSI sengaja tidak dipakai, karena menggabungkan lebih dari satu modalitas akan mengaburkan atribusi ilmiah tentang komponen mana yang bertanggung jawab atas hasil akhir.
+Domain fisik dibatasi pada gerak tubuh satu subjek dalam satu rekaman, bukan interaksi antar-orang; format ground truth MM-Fi berupa skeleton 3D per subjek memang sejalan dengan batas ini. Sekuens gerak itu tidak selalu berupa satu gerakan kontinu, karena sebagian besar jendela waktu yang dianalisis melintasi batas antar-repetisi. Pengaruhnya dilaporkan lewat analisis terpisah per kelompok jendela.
+Pembagian dataset bersifat cross-subject: subjek pelatihan, validasi, dan uji terpisah sepenuhnya, sementara keempat lingkungan perekaman tetap muncul di ketiga partisi. Hasil per lingkungan dengan demikian tidak dapat dijadikan bukti generalisasi ke lingkungan baru. Klaim yang sah dan diuji hanya generalisasi ke subjek yang belum pernah dilihat model.
+Bobot LLM dibekukan seratus persen sepanjang penelitian. Teknik penyetelan ringan seperti LoRA sengaja ditiadakan, terutama untuk menjaga isolasi kontribusi antar-komponen pada rancangan eksperimen, dengan pertimbangan tambahan berupa batas memori GPU.
+Tahap pra-pemrosesan menormalkan posisi dan ukuran setiap frame, sehingga informasi posisi absolut terhadap ruangan hilang sebelum data sampai ke encoder. Target dan klaim penelitian karena itu terbatas pada geometri tubuh relatif dan perubahannya terhadap waktu, bukan pada lintasan absolut di ruangan.
+Prediksi hanya menjangkau horizon pendek, kurang dari satu detik ke depan. Penelitian ini tidak melatih LLM dari awal, tidak menguji prediksi bersyarat aksi untuk perencanaan, tidak men-deploy perangkat keras robotik, dan tidak berambisi membangun general-purpose world model. Selama sebagian tahap pipeline masih dalam pemulihan, klaim tentang model dinamika dan penalaran LLM diperlakukan sebagai hipotesis yang akan diuji, belum sebagai hasil.
+
+
+   5. Manfaat Penelitian
+Secara teoritis, penelitian ini menyediakan bukti empiris yang bisa diuji ulang tentang sejauh mana representasi sensor dari radar mmWave mempertahankan target fisik yang terbaca, dan apakah prediksi eksplisit model dinamika memberi manfaat terukur dibanding baseline sederhana pada tugas penalaran bahasa. Manfaat itu berlaku pada dataset, pembagian data, horizon, dan protokol yang diuji. Protokol perbandingan dan kontrol sensitivitas terhadap sumber sinyal sensor dapat jadi rujukan metodologis bagi penelitian yang ingin menguji klaim serupa pada modalitas nirkabel lain, seperti WiFi CSI atau LiDAR.
+Secara praktis, arsitektur yang memisahkan tegas encoder sensor, model dinamika, proyektor, dan LLM beku dirancang agar bisa dieksperimenkan pada sumber daya komputasi terbatas, tanpa fine-tuning bobot LLM. Rancangan ini belum dibuktikan dalam hal deployment, kecepatan respons real-time, maupun konsumsi energi. Pemantauan lansia, deteksi jatuh, dan rehabilitasi pasien di ruang yang menuntut privasi tinggi hanya diposisikan sebagai arah pengembangan jangka panjang. Target yang diuji sejauh ini terbatas pada estimasi konfigurasi tubuh dan prediksi keadaan laten jangka pendek, jauh dari sistem deteksi jatuh atau pemantauan klinis.
+   6. Sistematika Penulisan
+Laporan Tugas Akhir ini disusun dalam lima bab yang saling berkesinambungan, mengikuti tahapan kurikulum penelitian secara berurutan.
+Bab I Pendahuluan memaparkan latar belakang, definisi operasional sensor-grounded sebagai acuan evaluasi, alasan memilih radar mmWave dibanding kamera, jarak antara sinyal sensor mentah dan target fisik yang bermakna, serta rumusan masalah, tujuan, batasan, dan manfaat penelitian.
+Bab II Tinjauan Pustaka mengkaji literatur yang jadi landasan teoretis dan metodologis: prinsip kerja radar FMCW dan karakteristik point cloud-nya, masked autoencoder untuk point cloud seperti Point-MAE, JEPA sebagai motivasi konseptual, arsitektur sensor-language alignment dengan LLM beku seperti SensorLLM beserta perbedaan domainnya dengan penelitian ini, dan kerangka evaluasi sensitivitas grounding.
+Bab III Metodologi Penelitian menguraikan rancangan sistem secara rinci: arsitektur pipeline beserta spesifikasi tiap modul, protokol pembagian dataset, definisi metrik evaluasi, serta desain kontrol pengacakan sinyal sensor sebagai uji sensitivitas grounding.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+DRAFT DAFTAR PUSTAKA
+Paragraf 1 — LLM disembodied, symbol grounding problem
+Song, P., Han, P., & Goodman, N. (2026). Large Language Model Reasoning Failures. Diterima di Transactions on Machine Learning Research (TMLR 2026).
+* arXiv: https://arxiv.org/abs/2602.06176
+* HTML/PDF: https://arxiv.org/html/2602.06176v1
+* Repo pendukung: https://github.com/Peiyang-Song/Awesome-LLM-Reasoning-Failures
+Dipakai untuk klaim taksonomi embodied vs non-embodied reasoning dan pengakuan komunitas riset atas jurang "berbicara tentang dunia" vs "memahami dunia".
+Paragraf 2 — pergeseran ke world model, JEPA, V-JEPA 2
+LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence, Version 0.9.2 (Position Paper).
+* OpenReview (versi resmi): dirujuk lewat ringkasan di https://mishig-jepawiki.hf.space/wiki/papers/lecun-position-paper (memuat tautan asli ke OpenReview)
+Assran, M. dkk. / Meta AI (2025). V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning.
+* arXiv: https://arxiv.org/abs/2506.09985
+* Blog resmi Meta: https://ai.meta.com/blog/v-jepa-2-world-model-benchmarks
+* Kode: https://github.com/facebookresearch/vjepa2
+Dipakai untuk klaim 1 juta jam video, 62 jam data DROID, dan tingkat keberhasilan ~80% pada pick-and-place.
+Paragraf 4 — mmBody benchmark (data degradasi kondisi hujan/asap)
+Chen, A., Wang, X., Zhu, S., Li, Y., Chen, J., & Ye, Q. (2022). mmBody Benchmark: 3D Body Reconstruction Dataset and Analysis for Millimeter Wave Radar. ACM Multimedia 2022 (MM'22), Lisboa.
+* arXiv: https://arxiv.org/abs/2209.05070
+* DOI: https://doi.org/10.1145/3503161.3548262
+* PapersWithCode: https://paperswithcode.com/paper/mmbody-benchmark-3d-body-reconstruction
+Dipakai untuk angka 56,4%/336% (depth) dan 42,8%/16,2% (RGB) — catatan: angka-angka persis ini tidak muncul verbatim di ringkasan hasil pencarian saya; kesimpulan umum paper (radar lebih tahan cuaca buruk dibanding kamera) memang terkonfirmasi, tapi angka persentase presisi sebaiknya dicek ulang langsung ke PDF paper sebelum disitasi di skripsi.
+Paragraf 4–7 — dataset MM-Fi
+Yang, J., Huang, H., Zhou, Y., Chen, X., Xu, Y., Yuan, S., Zou, H., Lu, C. X., & Xie, L. (2023). MM-Fi: Multi-Modal Non-Intrusive 4D Human Dataset for Versatile Wireless Sensing. NeurIPS 2023, Track on Datasets and Benchmarks.
+* arXiv: https://arxiv.org/abs/2305.10345
+* PDF resmi NeurIPS: https://papers.neurips.cc/paper_files/paper/2023/file/3baf7a39d07e9f4f1e258a412df94521-Paper-Datasets_and_Benchmarks.pdf
+* Halaman proyek: https://ntu-aiot-lab.github.io/mm-fi
+* Toolbox dataset: https://github.com/ybhbingo/MMFi_dataset
+Angka 320,76 ribu frame, 40 subjek, lima modalitas — cocok persis dengan abstrak paper.
+Paragraf 5 — SensorLLM
+Li, Z., Deldari, S., Chen, L., Xue, H., & Salim, F. D. (2025, versi terbaru). SensorLLM: Human-Intuitive Alignment of Multivariate Sensor Data with LLMs for Activity Recognition.
+* arXiv: https://arxiv.org/abs/2410.10624
+* HTML: https://arxiv.org/html/2410.10624v4
+
+
+Paragraf 7 — Point-MAE
+Pang, Y., Wang, W., Tay, F. E. H., Liu, W., Tian, Y., & Yuan, L. (2022). Masked Autoencoders for Point Cloud Self-Supervised Learning. ECCV 2022.
+* arXiv: https://arxiv.org/abs/2203.06604
+* PDF resmi ECVA: https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136620591.pdf
+* Kode: https://github.com/Pang-Yatian/Point-MAE
+Angka 85,18% (ScanObjectNN) dan 94,04% (ModelNet40) terkonfirmasi persis dari abstrak resmi paper.
+________________
+
+
+Sitasi yang tidak terverifikasi: Zhai dkk. (2023)
+tidak ditemukan paper berjudul persis yang menunjukkan CLIP mengalami representation collapse dengan akurasi domain ~99% lalu anjlok di luar domain, yang ditulis oleh penulis bernama Zhai dan terbit 2023. Yang saya temukan:
+* Zhai, X. dkk. (2022). LiT: Zero-Shot Transfer with Locked-Image Text Tuning, CVPR 2022 — https://arxiv.org/abs/2111.07991 — membahas strategi mengunci encoder gambar, tapi bukan soal collapse akibat fine-tuning end-to-end.
+* Kumar, A. dkk. (2022). Fine-tuning can distort pretrained features and underperform out-of-distribution, ICLR 2022 — klaim ini justru lebih cocok secara substansi (fine-tuning merusak fitur pretrained, ID naik OOD turun), tapi penulisnya bukan Zhai.
+* Beberapa paper lain (Ming & Li 2024, CLIPood ICML 2023) membahas fenomena serupa tapi juga bukan oleh Zhai.
