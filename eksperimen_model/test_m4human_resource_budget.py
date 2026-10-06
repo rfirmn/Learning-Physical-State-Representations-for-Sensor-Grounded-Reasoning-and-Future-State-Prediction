@@ -75,7 +75,7 @@ def main():
     with patch('eksperimen_model.utils.m4human_performance.process_tree_resources', return_value=low):
         rejects(lambda: ResourceMonitor({'ram_reserve_mib': 1}, 'cpu').__enter__(), RuntimeError)
     child = subprocess.Popen([sys.executable, '-c',
-        "import sys; allocation = bytearray(32 * 1024**2); print('ready', flush=True); sys.stdin.readline()"],
+        "import sys; allocation = bytearray(b'x' * (32 * 1024**2)); print('ready', flush=True); sys.stdin.readline()"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
         assert child.stdout.readline().strip() == 'ready'
@@ -85,7 +85,13 @@ def main():
             assert snapshot['sample_count'] >= 2
             assert snapshot['process_scope'] == 'parent_and_recursive_descendants'
             rows = {row['pid']: row for row in snapshot['processes']}
-            assert child.pid in rows and rows[child.pid]['rss_bytes'] >= 32 * 1024**2
+            target_pids = {child.pid}
+            try:
+                import psutil
+                target_pids |= {c.pid for c in psutil.Process(child.pid).children(recursive=True)}
+            except Exception:
+                pass
+            assert any(pid in rows and rows[pid]['rss_bytes'] >= 32 * 1024**2 for pid in target_pids)
             assert snapshot['process_tree_rss_sum_bytes'] == sum(row['rss_bytes'] for row in rows.values())
             assert 'not_physical_RAM_usage' in snapshot['rss_sum_semantics']
             if snapshot['process_tree_uss_sum_bytes'] is not None:

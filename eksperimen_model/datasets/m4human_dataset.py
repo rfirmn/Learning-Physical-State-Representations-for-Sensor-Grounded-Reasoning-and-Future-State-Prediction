@@ -497,6 +497,18 @@ class OfflineTargets:
         target['annotation_position_valid_root'] = target['annotation_root_valid']
         return target
 
+    def close(self):
+        for arr in list(getattr(self, 'arrays', {}).values()):
+            if hasattr(arr, '_mmap') and arr._mmap is not None:
+                try:
+                    arr._mmap.close()
+                except Exception:
+                    pass
+        self.arrays = {}
+
+    def __del__(self):
+        self.close()
+
 
 class EncoderTrainingDataset(Dataset):
     def __init__(self, sensor_dataset, targets):
@@ -508,3 +520,14 @@ class EncoderTrainingDataset(Dataset):
         sample = self.sensor_dataset[index]
         sample['targets'] = self.targets.read(sample['provenance']['frame_uid'])
         return sample
+
+    def close(self):
+        if hasattr(self.sensor_dataset, 'close'):
+            self.sensor_dataset.close()
+        elif hasattr(self.sensor_dataset, 'reader') and hasattr(self.sensor_dataset.reader, 'close'):
+            self.sensor_dataset.reader.close()
+        if hasattr(self.targets, 'close'):
+            self.targets.close()
+
+    def __del__(self):
+        self.close()

@@ -134,7 +134,7 @@ def main():
         pass
     else:
         raise AssertionError("Conflicting QA status accepted")
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         hroot = Path(directory) / "H"
         hroot.mkdir()
         times = torch.arange(32, dtype=torch.float64) / 12

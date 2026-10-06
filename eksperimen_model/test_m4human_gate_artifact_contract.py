@@ -216,6 +216,7 @@ def artifact_checks(root):
         path.write_bytes(old_bytes.replace(b'\n', b'\r\n'))
         assert runtime.completion_text_matches(path, old_hash)
         assert runtime.completion_text_matches(path, runtime.text_sha256(path, 'crlf'))
+        path.write_bytes(old_bytes)
     assert runtime.validate_run_artifacts(run) == []
     archive = root / 'run.zip'
     package_run(run, archive)

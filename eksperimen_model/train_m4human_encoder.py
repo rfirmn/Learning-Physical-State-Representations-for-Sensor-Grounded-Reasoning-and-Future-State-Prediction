@@ -342,9 +342,16 @@ def train(config,output_dir,device='cpu',resume=None,mode='pilot'):
         raise
     finally:
         if 'train_data' in locals():
-            train_data.sensor_dataset.reader.close()
+            if hasattr(train_data, 'close'):
+                train_data.close()
+            elif hasattr(train_data, 'sensor_dataset'):
+                train_data.sensor_dataset.reader.close()
         if 'val_data' in locals():
-            val_data.sensor_dataset.reader.close()
+            if hasattr(val_data, 'close'):
+                val_data.close()
+            elif hasattr(val_data, 'sensor_dataset'):
+                val_data.sensor_dataset.reader.close()
+
 
 
 def main():

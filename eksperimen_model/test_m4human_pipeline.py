@@ -45,7 +45,7 @@ def main():
     source_hashes = {str(path.relative_to(root)): file_sha256(path) for path in sources}
     results = []
     started = datetime.now(timezone.utc).isoformat()
-    with tempfile.TemporaryDirectory(prefix="m4human_test_runtime_") as temporary:
+    with tempfile.TemporaryDirectory(prefix="m4human_test_runtime_", ignore_cleanup_errors=True) as temporary:
         environment = dict(os.environ, MPLCONFIGDIR=str(Path(temporary)/"matplotlib"),
                            XDG_CACHE_HOME=temporary, TOKENIZERS_PARALLELISM="false")
         for name in CHECKS:

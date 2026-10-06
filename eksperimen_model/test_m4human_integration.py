@@ -102,7 +102,7 @@ def extract_with_batch_parity(extractor, config_path, checkpoint, output):
 
 def main():
     torch.set_num_threads(1)
-    with tempfile.TemporaryDirectory(prefix='m4human_integration_') as temporary:
+    with tempfile.TemporaryDirectory(prefix='m4human_integration_', ignore_cleanup_errors=True) as temporary:
         root=Path(temporary)
         config=fixture(root)
         config_path=root/'config.yaml'

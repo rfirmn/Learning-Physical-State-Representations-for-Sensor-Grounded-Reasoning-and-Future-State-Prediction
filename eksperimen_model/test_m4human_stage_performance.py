@@ -30,7 +30,7 @@ class GeneratingTinyLM(TinyCausalLM):
 
 def main():
     torch.set_num_threads(1)
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         config=fixture(Path(directory))
         config.update(micro_batch=1,accumulation=1,effective_batch=1,workers=0,cpu_threads=1,ram_reserve_mib=0,vram_reserve_mib=0,resource_poll_ms=50)
         dataset,stats=_physical_dataset(config,'M',None)
@@ -88,7 +88,7 @@ def main():
     from eksperimen_model.utils.m4human_runtime import save_checkpoint
     class FixtureQA(list):
         metadata={'data_kind':'m4human','scientific_eligible':True,'K':16}
-    with tempfile.TemporaryDirectory() as temporary:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
         folder=Path(temporary); initial=folder/'initial.pt'; config_file=folder/'language.yaml'
         config={'llm':{'revision':'a'*40},'lineage':{},'primary_budget':16,'training':dict(settings,max_prefix_tokens=1024,max_total_tokens=1200),
                 'generation':{'max_new_tokens':2}}

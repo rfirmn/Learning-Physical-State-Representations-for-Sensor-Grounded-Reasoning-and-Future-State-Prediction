@@ -125,3 +125,18 @@ class EncodedStateWindowDataset(Dataset):
                           context_source_frames=[r['context_source_frames'] for r in rows],
                           window_id=f'{rows[0]["frame_uid"]}..{rows[-1]["frame_uid"]}')
         return {'sensor':sensor, 'targets':targets, 'provenance':provenance}
+
+    def close(self):
+        for arr in list(getattr(self, 'arrays', {}).values()):
+            if hasattr(arr, '_mmap') and arr._mmap is not None:
+                try:
+                    arr._mmap.close()
+                except Exception:
+                    pass
+        self.arrays = {}
+        if getattr(self, 'targets', None) is not None and hasattr(self.targets, 'close'):
+            self.targets.close()
+
+    def __del__(self):
+        self.close()
+

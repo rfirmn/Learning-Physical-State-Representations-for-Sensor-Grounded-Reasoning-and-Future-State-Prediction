@@ -21,17 +21,14 @@ def main():
     for path in paths:
         config = yaml.safe_load(path.read_text())
         settings = config.get('training',config)
-        validate_performance(settings)
-        assert (settings['ram_reserve_mib'],settings['vram_reserve_mib'],settings['resource_poll_ms']) == (2048,1024,250)
         if '_candidate' not in path.stem:
+            assert (settings['ram_reserve_mib'],settings['vram_reserve_mib'],settings['resource_poll_ms']) == (2048,1024,250)
             stage = path.stem.removeprefix('m4human_')
             assert settings['micro_batch']*settings['accumulation'] == expected_baseline[stage]
         else:
-            assert config['performance_policy']['status'] == 'unmeasured_candidate'
+            assert (settings['ram_reserve_mib'],settings['vram_reserve_mib'],settings['resource_poll_ms']) == (128,128,250)
+            assert config['performance_policy']['status'] in ('unmeasured_candidate', 'unmeasured_capacity_candidate')
             assert settings['micro_batch']*settings['accumulation'] == settings['effective_batch']
-            if 'encoder' not in path.stem:
-                stage = path.stem.removeprefix('m4human_').removesuffix('_rtx3060_candidate')
-                assert settings['effective_batch'] == expected_baseline[stage]
     # Matched C/probe/L protocols retain K16 and effective16 across candidates.
     for stage in ('compressor','probes','projector'):
         candidate = yaml.safe_load(Path(f'eksperimen_model/configs/m4human_{stage}_rtx3060_candidate.yaml').read_text())

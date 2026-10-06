@@ -36,7 +36,7 @@ def child_read(rows, index, queue):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix='m4human_memory_') as directory:
+    with tempfile.TemporaryDirectory(prefix='m4human_memory_', ignore_cleanup_errors=True) as directory:
         root = Path(directory)
         path = root/'index.jsonl'
         with path.open('w') as stream:

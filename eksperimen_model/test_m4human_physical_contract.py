@@ -119,7 +119,7 @@ def main():
     failed=[{**r,'failure':True,'metrics':{}} for r in base]
     assert compare_physical(failed,kin,draws=10)['status']=='unavailable'
     reject(lambda:compare_physical(base,kin,draws=True))
-    with tempfile.TemporaryDirectory(prefix='m4physical_contract_') as temporary:
+    with tempfile.TemporaryDirectory(prefix='m4physical_contract_', ignore_cleanup_errors=True) as temporary:
         root=Path(temporary); config,entries,rows=fixture(root)
         for condition,records in (('M',base),('U_base',base),('U_kin',kin)):
             atomic_json(root/f'{condition}.json',{'condition':condition,'split':'val',
