@@ -26,8 +26,8 @@ encoder:
   feature_dim: 256
 training:
   seed: 42
-  micro_batch: 4
-  accumulation: 4
+  micro_batch: 16
+  accumulation: 1
   optimizer: AdamW
   learning_rate: 0.0002
   weight_decay: 0.01
@@ -40,18 +40,19 @@ training:
   lambda_root: 1.0
   lambda_bone: 0.0
   precision: fp16_amp_with_grad_scaler
-  workers: 0
+  workers: 4
   selection_metric: validation_mpjpe_global_m
   root_quality_gate_m: null
   diagnostic_samples: 8
   effective_batch: 16
-  eval_batch_size: 16
+  eval_batch_size: 256
   cpu_threads: 4
   prefetch_factor: 2
-  persistent_workers: false
+  persistent_workers: true
   pin_memory: true
   non_blocking: true
   multiprocessing_context: spawn
   ram_reserve_mib: 2048
   vram_reserve_mib: 1024
   resource_poll_ms: 250
+

@@ -20,3 +20,4 @@ Tabel ini mendokumentasikan seluruh riwayat eksperimen training yang telah dijal
 | Run | Stage | Status | Analysis ready | Report |
 |---|---|---|---|---|
 | RUN_M4HUMAN_SMOKE | E | complete | True | [Report](RUN_M4HUMAN_SMOKE/report.md) |
+| RUN_M4HUMAN_E_PILOT | E | failed | False | [Report](RUN_M4HUMAN_E_PILOT/report.md) |

@@ -64,8 +64,9 @@ class M4HumanSetEncoderV2(nn.Module):
         f = self.temporal(torch.cat((g.flatten(1), rel_time, count.float() / 512.), -1))
         valid = frame_valid.all(-1) & time_valid
         f = torch.where(valid[:, None], f, 0)
-        pose = rpc_m.new_zeros((len(rpc_m), 22, 3), dtype=f.dtype)
-        pose[:, self.non_pelvis] = self.pose_head(f).reshape(-1, 21, 3)
+        pred_pose = self.pose_head(f).reshape(-1, 21, 3)
+        pose = rpc_m.new_zeros((len(rpc_m), 22, 3), dtype=pred_pose.dtype)
+        pose[:, self.non_pelvis] = pred_pose
         root = self.root_head(f)
         pose = torch.where(valid[:, None, None], pose, 0).float()
         root = torch.where(valid[:, None], root, 0).float()
