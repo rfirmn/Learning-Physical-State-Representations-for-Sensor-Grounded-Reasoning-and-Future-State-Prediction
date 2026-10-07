@@ -331,6 +331,7 @@ class RunLogger:
         if event in {"epoch", "validation", "history", "train_epoch", "update"}:
             names.append("history.jsonl")
         for name in names:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
             with open(self.output_dir / name, "a", encoding="utf-8") as handle:
                 handle.write(encoded)
                 handle.flush()
