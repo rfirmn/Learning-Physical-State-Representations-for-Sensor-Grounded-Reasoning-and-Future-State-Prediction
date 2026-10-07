@@ -21,6 +21,17 @@ from eksperimen_model.utils.m4human_performance import configure_runtime, make_l
 from eksperimen_model.utils.m4human_gates import encoder_gate_spec, evaluate_encoder_gate
 
 
+def _trim_memory():
+    import gc
+    gc.collect()
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.psapi.EmptyWorkingSet(ctypes.windll.kernel32.GetCurrentProcess())
+        except Exception:
+            pass
+
+
 def collate_samples(samples):
     return {'sensor':{k:torch.stack([s['sensor'][k] for s in samples]) for k in samples[0]['sensor']},
             'targets':{k:torch.stack([s['targets'][k] for s in samples]) for k in samples[0]['targets']},
@@ -143,9 +154,14 @@ def evaluate_encoder(model,dataset,device,batch_size=4,records_path=None,panel_c
     joint_counts = np.zeros(22,dtype=np.int64)
     diagnostics, diagnostic_ids = [],[]
     settings = settings or {}
+    _trim_memory()
     handle = open(records_path,'w',encoding='utf-8') if records_path else None
     try:
+        step = 0
         for batch in make_loader(dataset,batch_size,settings,device,collate_fn=collate_samples):
+            step += 1
+            if step % 50 == 0:
+                _trim_memory()
             if resource_monitor is not None:
                 resource_monitor.check()
             sensor = to_device(batch['sensor'],device,settings.get('non_blocking',False))
@@ -183,6 +199,7 @@ def evaluate_encoder(model,dataset,device,batch_size=4,records_path=None,panel_c
                                         'time_s':sensor['time_s'][i].cpu().numpy()})
                     diagnostic_ids.append(prov)
     finally:
+        _trim_memory()
         if handle:
             handle.close()
     metrics = {name:{'error_sum':sums[name],'count':counts[name],'mean_m':sums[name]/counts[name] if counts[name] else None} for name in sums}
@@ -217,6 +234,8 @@ def train(config,output_dir,device='cpu',resume=None,mode='pilot'):
             seed_everything(settings['seed'])
             monitor.check()
             normalizer = fit_input_normalizer(train_data.sensor_dataset)
+            train_data.sensor_dataset.reader.close()
+            _trim_memory()
             config = dict(config,lineage=dict(lineage,normalizer_hash=canonical_hash(normalizer)),normalizer=normalizer)
             gate_spec = encoder_gate_spec(config,mode)
             if mode=='final' and not evaluate_encoder_gate(gate_spec,0.)['scientific_eligible']:
@@ -293,9 +312,15 @@ def train(config,output_dir,device='cpu',resume=None,mode='pilot'):
                     exposure += group_exposure
                     skipped += retries
                     steps += 1
+                    if steps % 2000 == 0:
+                        _trim_memory()
+                del iterator, loader
+                _trim_memory()
                 monitor.check()
                 metrics,_,_ = evaluate_encoder(model,val_data,device,settings.get('eval_batch_size',settings['micro_batch']),panel_count=0,settings=settings,resource_monitor=monitor)
+                _trim_memory()
                 train_panel_metrics,_,_ = evaluate_encoder(model,panel,device,settings.get('eval_batch_size',settings['micro_batch']),panel_count=0,settings=settings,resource_monitor=monitor)
+                _trim_memory()
                 monitor.check()
                 if metrics['global']['mean_m'] is None or metrics['root']['mean_m'] is None:
                     raise ValueError('validation has no global/root targets')
@@ -316,10 +341,14 @@ def train(config,output_dir,device='cpu',resume=None,mode='pilot'):
                                 'scaler':scaler.state_dict(),'rng':rng_state(),'best':best,'patience':patience,'total_budget':total_budget,'sampler_policy':'epoch_seed_plus_epoch'})
                 if patience>=settings['early_stop_patience'] or mode=='smoke':
                     break
+            _trim_memory()
             monitor.check()
             load_checkpoint(Path(output_dir)/'best.pt',model,config['lineage'])
+            _trim_memory()
             metrics,diagnostics,ids = evaluate_encoder(model,val_data,device,settings.get('eval_batch_size',settings['micro_batch']),Path(output_dir)/'predictions_val.jsonl',settings['diagnostic_samples'],settings=settings,resource_monitor=monitor)
+            _trim_memory()
             evaluate_encoder(model,panel,device,settings.get('eval_batch_size',settings['micro_batch']),Path(output_dir)/'predictions_train_panel.jsonl',panel_count=0,settings=settings,resource_monitor=monitor)
+            _trim_memory()
             np.savez(Path(output_dir)/'diagnostic_samples.npz',**{k:np.stack([d[k] for d in diagnostics]) for k in diagnostics[0]})
             atomic_json(Path(output_dir)/'diagnostic_samples.json',{'policy':'first_fixed_eligible_validation_anchors_before_training','records':ids,'checkpoint_hash':file_sha256(Path(output_dir)/'best.pt')})
             recomputed = recompute_encoder_metrics(Path(output_dir)/'predictions_val.jsonl')

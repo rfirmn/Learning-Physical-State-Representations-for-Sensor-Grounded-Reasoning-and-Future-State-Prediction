@@ -40,7 +40,7 @@ training:
   lambda_root: 1.0
   lambda_bone: 0.0
   precision: fp16_amp_with_grad_scaler
-  workers: 4
+  workers: 0
   selection_metric: validation_mpjpe_global_m
   root_quality_gate_m: null
   diagnostic_samples: 8
@@ -48,7 +48,7 @@ training:
   eval_batch_size: 256
   cpu_threads: 4
   prefetch_factor: 2
-  persistent_workers: true
+  persistent_workers: false
   pin_memory: true
   non_blocking: true
   multiprocessing_context: spawn
